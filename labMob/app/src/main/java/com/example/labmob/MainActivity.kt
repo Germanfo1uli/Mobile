@@ -160,7 +160,7 @@ private fun LabMobApp() {
             onNext = { stage = AppStage.REGISTRATION },
         )
 
-        AppStage.REGISTRATION -> RegistrationScreen()
+        AppStage.REGISTRATION -> CourseHomeScreen()
     }
 }
 
@@ -321,8 +321,7 @@ fun RegistrationScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Ink)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
+            .background(Ink),
     ) {
         HeistBackdrop(scrimAlpha = 0.12f)
 
