@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Tab
@@ -29,7 +31,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private val CourseInk = Color(0xFF07070A)
@@ -59,6 +64,10 @@ private enum class CourseTab(val title: String) {
 @Composable
 fun CourseHomeScreen() {
     var selectedTab by rememberSaveable { mutableIntStateOf(CourseTab.PROFILE.ordinal) }
+    var playerId by rememberSaveable { mutableStateOf<String?>(null) }
+    var syncMessage by rememberSaveable { mutableStateOf("Сначала сохрани досье игрока") }
+    val api = remember { BackendApi() }
+    val scope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -89,10 +98,37 @@ fun CourseHomeScreen() {
 
         Box(modifier = Modifier.weight(1f)) {
             when (CourseTab.entries[selectedTab]) {
-                CourseTab.PROFILE -> RegistrationScreen()
+                CourseTab.PROFILE -> RegistrationScreen { profile ->
+                    scope.launch {
+                        syncMessage = "Сохранение досье..."
+                        runCatching { api.createPlayer(profile) }
+                            .onSuccess { id ->
+                                playerId = id
+                                syncMessage = "Досье сохранено в PostgreSQL"
+                            }
+                            .onFailure { error ->
+                                syncMessage = "Не удалось сохранить: ${error.message ?: "нет связи с сервером"}"
+                            }
+                    }
+                }
                 CourseTab.RULES -> RulesScreen()
                 CourseTab.AUTHORS -> AuthorsScreen()
-                CourseTab.SETTINGS -> SettingsScreen()
+                CourseTab.SETTINGS -> SettingsScreen(
+                    playerId = playerId,
+                    syncMessage = syncMessage,
+                    onSave = { settings ->
+                        playerId?.let { id ->
+                            scope.launch {
+                                syncMessage = "Сохранение настроек..."
+                                runCatching { api.saveSettings(id, settings) }
+                                    .onSuccess { syncMessage = "Настройки сохранены в PostgreSQL" }
+                                    .onFailure { error ->
+                                        syncMessage = "Не удалось сохранить: ${error.message ?: "нет связи с сервером"}"
+                                    }
+                            }
+                        }
+                    },
+                )
             }
         }
     }
@@ -223,7 +259,11 @@ private fun AuthorCard(author: Author) {
 }
 
 @Composable
-private fun SettingsScreen() {
+private fun SettingsScreen(
+    playerId: String?,
+    syncMessage: String,
+    onSave: (GameSettings) -> Unit,
+) {
     var gameSpeed by rememberSaveable { mutableFloatStateOf(1f) }
     var maxInsects by rememberSaveable { mutableIntStateOf(8) }
     var bonusInterval by rememberSaveable { mutableIntStateOf(15) }
@@ -264,6 +304,32 @@ private fun SettingsScreen() {
             onValueChange = { roundDuration = it.roundToInt() },
             valueRange = 30f..180f,
             steps = 14,
+        )
+        Button(
+            onClick = {
+                onSave(
+                    GameSettings(
+                        gameSpeed = gameSpeed,
+                        maxInsects = maxInsects,
+                        bonusIntervalSeconds = bonusInterval,
+                        roundDurationSeconds = roundDuration,
+                    ),
+                )
+            },
+            enabled = playerId != null,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = CourseRed,
+                contentColor = Color.White,
+            ),
+        ) {
+            Text("СОХРАНИТЬ НА СЕРВЕРЕ", fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = syncMessage,
+            color = Color.White.copy(alpha = 0.82f),
+            modifier = Modifier.testTag("backend_sync_status"),
         )
     }
 }

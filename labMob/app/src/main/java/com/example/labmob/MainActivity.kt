@@ -304,7 +304,7 @@ private fun IntroMessageScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RegistrationScreen() {
+fun RegistrationScreen(onProfileSubmitted: (PlayerProfile) -> Unit = {}) {
     var fullName by rememberSaveable { mutableStateOf("") }
     var gender by rememberSaveable { mutableStateOf("Мужской") }
     var course by rememberSaveable { mutableStateOf(1) }
@@ -630,7 +630,7 @@ fun RegistrationScreen() {
                     val cleanName = fullName.trim()
                     showNameError = cleanName.isEmpty()
                     if (cleanName.isNotEmpty()) {
-                        submittedProfile = PlayerProfile(
+                        val profile = PlayerProfile(
                             fullName = cleanName,
                             gender = gender,
                             course = course,
@@ -638,6 +638,8 @@ fun RegistrationScreen() {
                             birthDateMillis = birthDateMillis,
                             zodiac = zodiac,
                         )
+                        submittedProfile = profile
+                        onProfileSubmitted(profile)
                     }
                 },
                 modifier = Modifier
