@@ -1,7 +1,7 @@
 package com.example.labmob
 
+import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -10,8 +10,11 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.example.labmob.ui.theme.LabMobTheme
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
@@ -21,10 +24,14 @@ class RegistrationScreenTest {
 
     @Test
     fun quickDateAndRegistrationProduceExpectedProfile() {
-        composeRule.onNodeWithText("ЕЩЁ НЕ КОНЕЦ.").assertIsDisplayed()
-        composeRule.onNodeWithTag("intro_message").performClick()
-        composeRule.onNodeWithText("ВЫБОРА НЕТ.").assertIsDisplayed()
-        composeRule.onNodeWithTag("intro_message").performClick()
+        var submittedProfile: PlayerProfile? = null
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.setContent {
+                LabMobTheme(dynamicColor = false) {
+                    RegistrationScreen(onProfileSubmitted = { submittedProfile = it })
+                }
+            }
+        }
 
         composeRule.onNodeWithTag("full_name")
             .performTextInput("Иван Иванов")
@@ -41,10 +48,10 @@ class RegistrationScreenTest {
             .performScrollTo()
             .performClick()
 
-        composeRule.onNodeWithText("ДОСЬЕ ПРИНЯТО")
-            .performScrollTo()
-            .assertIsDisplayed()
-        composeRule.onNodeWithTag("player_result")
-            .assertTextContains("Иван Иванов", substring = true)
+        composeRule.runOnIdle {
+            assertNotNull(submittedProfile)
+            assertEquals("Иван Иванов", submittedProfile?.fullName)
+            assertEquals("Телец", submittedProfile?.zodiac?.title)
+        }
     }
 }
