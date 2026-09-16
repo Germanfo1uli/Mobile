@@ -46,6 +46,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,12 +57,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -83,6 +86,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private val Ink = Color(0xFF07070A)
@@ -131,16 +135,37 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class AppStage {
+    SPLASH,
+    ENTRY_MENU,
     THIEVES_MESSAGE,
     POLICE_MESSAGE,
     REGISTRATION,
+    MAIN_MENU,
 }
 
 @Composable
 private fun LabMobApp() {
-    var stage by rememberSaveable { mutableStateOf(AppStage.THIEVES_MESSAGE) }
+    val context = LocalContext.current
+    var stage by rememberSaveable { mutableStateOf(AppStage.SPLASH) }
+    var savedPlayer by remember { mutableStateOf(context.loadLocalPlayer()) }
 
     when (stage) {
+        AppStage.SPLASH -> SplashScreen(
+            onFinished = { stage = AppStage.ENTRY_MENU },
+        )
+
+        AppStage.ENTRY_MENU -> EntryChoiceScreen(
+            savedPlayer = savedPlayer,
+            onNewGame = { stage = AppStage.THIEVES_MESSAGE },
+            onContinue = {
+                if (savedPlayer != null) stage = AppStage.MAIN_MENU
+            },
+            onDeleteSave = {
+                context.deleteLocalPlayer()
+                savedPlayer = null
+            },
+        )
+
         AppStage.THIEVES_MESSAGE -> IntroMessageScreen(
             cardColor = RebelRed,
             eyebrow = "ЗАПИСКА БЕЗ ПОДПИСИ",
@@ -160,7 +185,94 @@ private fun LabMobApp() {
             onNext = { stage = AppStage.REGISTRATION },
         )
 
-        AppStage.REGISTRATION -> CourseHomeScreen()
+        AppStage.REGISTRATION -> RegistrationFlowScreen(
+            onRegistered = { id, profile ->
+                savedPlayer = context.saveLocalPlayer(id, profile)
+                stage = AppStage.MAIN_MENU
+            },
+        )
+
+        AppStage.MAIN_MENU -> MainMenuScreen(
+            player = requireNotNull(savedPlayer),
+            onDeleteSave = {
+                context.deleteLocalPlayer()
+                savedPlayer = null
+                stage = AppStage.ENTRY_MENU
+            },
+        )
+    }
+}
+
+@Composable
+private fun SplashScreen(onFinished: () -> Unit) {
+    LaunchedEffect(Unit) {
+        delay(2_300)
+        onFinished()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Ink)
+            .clickable(onClickLabel = "Пропустить заставку", onClick = onFinished)
+            .testTag("splash_screen"),
+    ) {
+        Image(
+            painter = painterResource(R.drawable.phantom_crew_splash),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Black.copy(alpha = 0.08f),
+                        0.56f to Color.Black.copy(alpha = 0.05f),
+                        1f to Color.Black.copy(alpha = 0.92f),
+                    ),
+                ),
+        )
+
+        Text(
+            text = "ALTHUNT",
+            color = Color.Black,
+            fontSize = 48.sp,
+            lineHeight = 42.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-1).sp,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 29.dp, bottom = 105.dp)
+                .offset(5.dp, 6.dp),
+        )
+        Text(
+            text = "ALTHUNT",
+            color = Color.White,
+            fontSize = 48.sp,
+            lineHeight = 42.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-1).sp,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 29.dp, bottom = 105.dp),
+        )
+        Text(
+            text = "ОХОТА НАЧИНАЕТСЯ",
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 2.sp,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 31.dp, bottom = 64.dp)
+                .background(RebelRed)
+                .border(2.dp, Color.White)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
 }
 
@@ -304,7 +416,11 @@ private fun IntroMessageScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RegistrationScreen(onProfileSubmitted: (PlayerProfile) -> Unit = {}) {
+fun RegistrationScreen(
+    isSubmitting: Boolean = false,
+    submissionMessage: String? = null,
+    onProfileSubmitted: (PlayerProfile) -> Unit = {},
+) {
     var fullName by rememberSaveable { mutableStateOf("") }
     var gender by rememberSaveable { mutableStateOf("Мужской") }
     var course by rememberSaveable { mutableStateOf(1) }
@@ -314,7 +430,6 @@ fun RegistrationScreen(onProfileSubmitted: (PlayerProfile) -> Unit = {}) {
     var quickDateError by rememberSaveable { mutableStateOf(false) }
     var courseMenuExpanded by remember { mutableStateOf(false) }
     var showNameError by rememberSaveable { mutableStateOf(false) }
-    var submittedProfile by remember { mutableStateOf<PlayerProfile?>(null) }
 
     val zodiac = remember(birthDateMillis) { zodiacFor(birthDateMillis) }
 
@@ -638,7 +753,6 @@ fun RegistrationScreen(onProfileSubmitted: (PlayerProfile) -> Unit = {}) {
                             birthDateMillis = birthDateMillis,
                             zodiac = zodiac,
                         )
-                        submittedProfile = profile
                         onProfileSubmitted(profile)
                     }
                 },
@@ -647,6 +761,7 @@ fun RegistrationScreen(onProfileSubmitted: (PlayerProfile) -> Unit = {}) {
                     .height(62.dp)
                     .rotate(-1f)
                     .testTag("submit_player"),
+                enabled = !isSubmitting,
                 shape = RoundedCornerShape(2.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = RebelRed,
@@ -655,15 +770,28 @@ fun RegistrationScreen(onProfileSubmitted: (PlayerProfile) -> Unit = {}) {
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp),
             ) {
                 Text(
-                    text = "ПЕРЕДАТЬ ДОСЬЕ  →",
+                    text = if (isSubmitting) "ПЕРЕДАЁМ ДОСЬЕ..." else "ПЕРЕДАТЬ ДОСЬЕ  →",
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Black,
                     fontStyle = FontStyle.Italic,
                 )
             }
 
-            submittedProfile?.let { profile ->
-                PlayerResult(profile)
+            submissionMessage?.let { message ->
+                Text(
+                    text = message,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Ink.copy(alpha = 0.86f))
+                        .border(2.dp, RebelRed)
+                        .padding(12.dp)
+                        .testTag("registration_sync_status"),
+                )
             }
 
             Spacer(Modifier.height(20.dp))
