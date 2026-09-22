@@ -39,6 +39,11 @@ fun Context.saveLocalPlayer(id: String, profile: PlayerProfile): SavedPlayerProf
         birthDateMillis = profile.birthDateMillis,
         zodiac = profile.zodiac.title,
     )
+    saveLocalPlayer(saved)
+    return saved
+}
+
+fun Context.saveLocalPlayer(saved: SavedPlayerProfile) {
     getSharedPreferences(PLAYER_PREFERENCES, Context.MODE_PRIVATE)
         .edit()
         .putString("id", saved.id)
@@ -49,7 +54,6 @@ fun Context.saveLocalPlayer(id: String, profile: PlayerProfile): SavedPlayerProf
         .putLong("birth_date", saved.birthDateMillis)
         .putString("zodiac", saved.zodiac)
         .apply()
-    return saved
 }
 
 fun Context.deleteLocalPlayer() {
