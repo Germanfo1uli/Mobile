@@ -54,7 +54,7 @@ export function registerRoundRoutes(app, { inTransaction }) {
       coordinateSystem: "normalized_playfield",
       targets: TARGET_TYPES.map((type) => ({ ...type, assetKey: type.id })),
       rules: GAME_RULES,
-      bonus: { type: "tilt", assetKey: "tilt_bonus", defaultIntervalSeconds: 15 },
+      bonus: { type: "theurgy", assetKey: "theurgy_card", defaultIntervalSeconds: 15 },
       sound: { cue: GAME_RULES.soundCue, assetKey: GAME_RULES.soundCue },
     });
   });

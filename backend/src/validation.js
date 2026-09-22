@@ -47,8 +47,9 @@ export function validateSettings(body = {}) {
   integerInRange(body.maxInsects, 3, 15, "maxInsects", errors);
   integerInRange(body.bonusIntervalSeconds, 5, 30, "bonusIntervalSeconds", errors);
   integerInRange(body.roundDurationSeconds, 30, 180, "roundDurationSeconds", errors);
+  if (body.difficulty !== undefined) integerInRange(body.difficulty, 1, 5, "difficulty", errors);
   if (Object.keys(errors).length) throw new ValidationError(errors);
-  return { gameSpeed, maxInsects: body.maxInsects, bonusIntervalSeconds: body.bonusIntervalSeconds, roundDurationSeconds: body.roundDurationSeconds };
+  return { gameSpeed, maxInsects: body.maxInsects, bonusIntervalSeconds: body.bonusIntervalSeconds, roundDurationSeconds: body.roundDurationSeconds, difficulty: body.difficulty };
 }
 
 export function validateResult(body = {}) {
