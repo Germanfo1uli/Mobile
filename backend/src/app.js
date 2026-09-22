@@ -28,6 +28,7 @@ function settingsRow(row) {
     maxInsects: row.max_insects,
     bonusIntervalSeconds: row.bonus_interval_seconds,
     roundDurationSeconds: row.round_duration_seconds,
+    difficulty: row.difficulty,
     updatedAt: row.updated_at,
   };
 }
@@ -113,7 +114,7 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
 
   app.get("/api/players/:playerId/settings", async (request, response) => {
     const playerId = requireUuid(request.params.playerId, "playerId");
-    const result = await pool.query("SELECT * FROM player_settings WHERE player_id = $1", [playerId]);
+    const result = await pool.query("SELECT s.*, p.difficulty FROM player_settings s JOIN players p ON p.id = s.player_id WHERE s.player_id = $1", [playerId]);
     if (!result.rowCount) return response.status(404).json({ error: "Player not found" });
     response.json({ settings: settingsRow(result.rows[0]) });
   });
@@ -121,14 +122,23 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
   app.put("/api/players/:playerId/settings", async (request, response) => {
     const playerId = requireUuid(request.params.playerId, "playerId");
     const settings = validateSettings(request.body);
-    const result = await pool.query(
-      `UPDATE player_settings
-       SET game_speed = $2, max_insects = $3, bonus_interval_seconds = $4,
-           round_duration_seconds = $5, updated_at = now()
-       WHERE player_id = $1
-       RETURNING *`,
-      [playerId, settings.gameSpeed, settings.maxInsects, settings.bonusIntervalSeconds, settings.roundDurationSeconds],
-    );
+    const result = await inTransaction(async (client) => {
+      const player = await client.query(
+        "UPDATE players SET difficulty = COALESCE($2, difficulty) WHERE id = $1 RETURNING difficulty",
+        [playerId, settings.difficulty ?? null],
+      );
+      if (!player.rowCount) return { rowCount: 0 };
+      const updated = await client.query(
+        `UPDATE player_settings
+         SET game_speed = $2, max_insects = $3, bonus_interval_seconds = $4,
+             round_duration_seconds = $5, updated_at = now()
+         WHERE player_id = $1 RETURNING *`,
+        [playerId, settings.gameSpeed, settings.maxInsects, settings.bonusIntervalSeconds, settings.roundDurationSeconds],
+      );
+      if (!updated.rowCount) throw new GameError(409, "Player settings are missing");
+      updated.rows[0].difficulty = player.rows[0].difficulty;
+      return updated;
+    });
     if (!result.rowCount) return response.status(404).json({ error: "Player not found" });
     response.json({ settings: settingsRow(result.rows[0]) });
   });
@@ -147,13 +157,16 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
     const offset = pageInteger(request.query.offset, 0, 0, 1_000_000);
     const difficulty = request.query.difficulty === undefined ? null : pageInteger(request.query.difficulty, null, 1, 5);
     const result = await pool.query(
-      `SELECT r.id, r.score, r.hits, r.misses, r.difficulty, r.played_at,
-              p.id AS player_id, p.full_name
-       FROM game_results r
-       JOIN players p ON p.id = r.player_id
-       WHERE r.verified = true AND ($3::smallint IS NULL OR r.difficulty = $3)
-       ORDER BY r.score DESC, r.played_at ASC, r.id ASC
-       LIMIT $1 OFFSET $2`,
+      `WITH ranked AS (
+         SELECT r.id, r.score, r.hits, r.misses, r.difficulty, r.played_at,
+                p.id AS player_id, p.full_name,
+                ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY r.score DESC, r.played_at ASC, r.id ASC) AS place
+         FROM game_results r JOIN players p ON p.id = r.player_id
+         WHERE r.verified = true AND ($3::smallint IS NULL OR r.difficulty = $3)
+       )
+       SELECT id, score, hits, misses, difficulty, played_at, player_id, full_name
+       FROM ranked WHERE place = 1
+       ORDER BY score DESC, played_at ASC, id ASC LIMIT $1 OFFSET $2`,
       [limit, offset, difficulty],
     );
     response.json({ records: result.rows, limit, offset });

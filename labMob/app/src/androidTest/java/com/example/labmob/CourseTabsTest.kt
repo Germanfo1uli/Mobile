@@ -6,7 +6,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.activity.compose.setContent
 import com.example.labmob.ui.theme.LabMobTheme
@@ -40,7 +39,11 @@ class CourseTabsTest {
             }
         }
 
-        composeRule.onNodeWithTag("play_locked").assertIsDisplayed().assertIsNotEnabled()
+        composeRule.onNodeWithTag("play_menu_item").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("level_map").assertIsDisplayed()
+        composeRule.onNodeWithTag("level_1").assertIsDisplayed()
+        composeRule.onNodeWithTag("level_locked_02").assertIsDisplayed()
+        composeRule.onNodeWithTag("menu_back").performClick()
 
         composeRule.onNodeWithTag("profile_menu_item").performClick()
         composeRule.onNodeWithTag("dossier_screen").assertIsDisplayed()
@@ -62,6 +65,12 @@ class CourseTabsTest {
             .performScrollToNode(hasTestTag("settings_menu_item"))
         composeRule.onNodeWithTag("settings_menu_item").performClick()
         composeRule.onNodeWithTag("settings_screen").assertIsDisplayed()
+        composeRule.onNodeWithTag("menu_back").performClick()
+
+        composeRule.onNodeWithTag("menu_dashboard")
+            .performScrollToNode(hasTestTag("records_menu_item"))
+        composeRule.onNodeWithTag("records_menu_item").performClick()
+        composeRule.onNodeWithTag("records_screen").assertIsDisplayed()
         composeRule.onNodeWithTag("menu_back").performClick()
 
         composeRule.onNodeWithTag("menu_dashboard")

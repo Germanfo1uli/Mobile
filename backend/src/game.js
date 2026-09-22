@@ -3,17 +3,17 @@ import { ValidationError, requireUuid } from "./validation.js";
 
 // Coordinates are fractions of the playfield, not device-specific pixels.
 export const TARGET_TYPES = [
-  { id: "cockroach", title: "Таракан", points: 10, speed: 0.07, radius: 0.055 },
-  { id: "beetle", title: "Жук", points: 20, speed: 0.10, radius: 0.045 },
-  { id: "fly", title: "Муха", points: 30, speed: 0.14, radius: 0.035 },
+  { id: "alt_red", title: "Беглянка", points: 10, speed: 0.12, radius: 0.10 },
+  { id: "alt_silver", title: "Тень", points: 20, speed: 0.16, radius: 0.085 },
 ];
 
 export const GAME_RULES = {
   missPenalty: 5,
   bonusLifetimeSeconds: 5,
   tiltDurationSeconds: 10,
+  theurgyCutsceneMilliseconds: 4_000,
   tiltSpeed: 0.35,
-  soundCue: "insect_scream",
+  soundCue: "target_spotted",
 };
 
 export class GameError extends Error {
@@ -27,13 +27,13 @@ const random = () => randomInt(1_000_000) / 1_000_000;
 
 function spawnTarget(state, now) {
   const type = TARGET_TYPES[randomInt(TARGET_TYPES.length)];
-  const angle = random() * Math.PI * 2;
   const speed = type.speed * state.settings.gameSpeed * (1 + (state.difficulty - 1) * 0.2);
+  const direction = random() < 0.5 ? -1 : 1;
   return {
     id: randomUUID(), type: type.id, points: type.points * state.difficulty,
     radius: type.radius, x: type.radius + random() * (1 - 2 * type.radius),
     y: type.radius + random() * (1 - 2 * type.radius),
-    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+    vx: direction * speed, vy: (random() - 0.5) * speed * 0.24,
     positionedAt: now, expiresAt: now + 12_000,
   };
 }
@@ -75,7 +75,7 @@ export function createRoundState(player, settings, now) {
     startedAt: now, endsAt: now + settings.roundDurationSeconds * 1000,
     score: 0, hits: 0, misses: 0, bonusesCollected: 0,
     nextBonusAt: now + settings.bonusIntervalSeconds * 1000,
-    bonus: null, tiltUntil: 0, tilt: { x: 0, y: 0 }, targets: [],
+    bonus: null, tiltUntil: 0, theurgyUntil: 0, tilt: { x: 0, y: 0 }, targets: [],
   };
   for (let i = 0; i < settings.maxInsects; i++) state.targets.push(spawnTarget(state, now));
   return state;
@@ -83,6 +83,7 @@ export function createRoundState(player, settings, now) {
 
 export function advanceRound(state, now) {
   if (now >= state.endsAt) return false;
+  if (now < state.theurgyUntil) return true;
   state.targets = state.targets.filter((target) => target.expiresAt > now);
   while (state.targets.length < state.settings.maxInsects) state.targets.push(spawnTarget(state, now));
   if (state.bonus && state.bonus.expiresAt <= now) state.bonus = null;
@@ -92,7 +93,7 @@ export function advanceRound(state, now) {
     state.nextBonusAt = lastScheduledAt + interval;
     if (lastScheduledAt + GAME_RULES.bonusLifetimeSeconds * 1000 > now) {
       state.bonus = {
-        id: randomUUID(), type: "tilt", x: 0.5, y: 0.5,
+        id: randomUUID(), type: "theurgy", x: 0.5, y: 0.5,
         expiresAt: lastScheduledAt + GAME_RULES.bonusLifetimeSeconds * 1000,
       };
     }
@@ -107,7 +108,8 @@ export function roundSnapshot(round, now) {
     serverTime: new Date(now).toISOString(),
     startedAt: new Date(state.startedAt).toISOString(),
     endsAt: new Date(state.endsAt).toISOString(),
-    remainingMilliseconds: round.status === "active" ? Math.max(0, state.endsAt - now) : 0,
+    remainingMilliseconds: round.status === "active" ? Math.max(0, state.endsAt - Math.max(now, state.theurgyUntil ?? 0)) : 0,
+    theurgyRemainingMilliseconds: round.status === "active" ? Math.max(0, (state.theurgyUntil ?? 0) - now) : 0,
     score: state.score, hits: state.hits, misses: state.misses,
     difficulty: state.difficulty, settings: state.settings,
     bonusesCollected: state.bonusesCollected,
@@ -123,7 +125,7 @@ export function roundSnapshot(round, now) {
     bonus: round.status === "active" && state.bonus ? {
       ...state.bonus, expiresAt: new Date(state.bonus.expiresAt).toISOString(),
     } : null,
-    effect: round.status === "active" && state.tiltUntil > now ? {
+    effect: round.status === "active" && state.tiltUntil > now && (state.theurgyUntil ?? 0) <= now ? {
       type: "tilt", until: new Date(state.tiltUntil).toISOString(),
       direction: state.tilt, speed: GAME_RULES.tiltSpeed,
     } : null,
@@ -147,6 +149,7 @@ export function validateEvent(body) {
 }
 
 export function applyEvent(state, event, now) {
+  if (now < (state.theurgyUntil ?? 0)) throw new GameError(409, "Theurgy cutscene is playing");
   if (event.type === "tap") {
     const index = state.targets.findIndex((target) => {
       const position = positionAt(target, now, state);
@@ -168,7 +171,15 @@ export function applyEvent(state, event, now) {
     reanchorTargets(state, now);
     state.bonus = null;
     state.bonusesCollected++;
-    state.tiltUntil = Math.min(now + GAME_RULES.tiltDurationSeconds * 1000, state.endsAt);
+    const cutscene = GAME_RULES.theurgyCutsceneMilliseconds;
+    state.endsAt += cutscene;
+    state.nextBonusAt += cutscene;
+    state.theurgyUntil = now + cutscene;
+    for (const target of state.targets) {
+      target.positionedAt = state.theurgyUntil;
+      target.expiresAt += cutscene;
+    }
+    state.tiltUntil = Math.min(state.theurgyUntil + GAME_RULES.tiltDurationSeconds * 1000, state.endsAt);
     state.tilt = { x: 0, y: 0 };
     return { type: "bonus_collected", soundCue: GAME_RULES.soundCue };
   }

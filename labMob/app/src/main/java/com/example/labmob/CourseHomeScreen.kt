@@ -2,7 +2,6 @@ package com.example.labmob
 
 import android.app.Activity
 import android.media.MediaPlayer
-import android.util.Log
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -79,18 +78,29 @@ fun RegistrationFlowScreen(onRegistered: (String, PlayerProfile) -> Unit) {
     )
 }
 
-private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS }
+private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS, MAP, GAME, RESULT, RECORDS }
 
 @Composable
-fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}) {
+fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, onChangePlayer: () -> Unit = {}, onPlayerUpdated: (SavedPlayerProfile) -> Unit = {}) {
     var destination by rememberSaveable { mutableStateOf(MenuDestination.HOME) }
     var showVelvetRoom by rememberSaveable { mutableStateOf(false) }
     var syncMessage by rememberSaveable { mutableStateOf("Настройки ещё не менялись") }
+    var resultScore by rememberSaveable { mutableIntStateOf(0) }
+    var resultHits by rememberSaveable { mutableIntStateOf(0) }
+    var resultMisses by rememberSaveable { mutableIntStateOf(0) }
+    var bestScore by remember { mutableStateOf<Int?>(null) }
     val api = remember { BackendApi() }
     val scope = rememberCoroutineScope()
 
-    LoopingMenuMusic()
-    BackHandler(enabled = showVelvetRoom || destination != MenuDestination.HOME) {
+    LaunchedEffect(destination, player.id) {
+        if (destination == MenuDestination.HOME) {
+            runCatching { api.playerResults(player.id) }
+                .onSuccess { bestScore = it.maxOfOrNull(HuntRecord::score) }
+        }
+    }
+
+    LoopingMenuMusic(destination == MenuDestination.GAME)
+    BackHandler(enabled = showVelvetRoom || (destination != MenuDestination.HOME && destination != MenuDestination.GAME)) {
         if (showVelvetRoom) showVelvetRoom = false else destination = MenuDestination.HOME
     }
 
@@ -108,10 +118,14 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}) {
             when (destination) {
                 MenuDestination.HOME -> MenuDashboard(
                     player,
+                    bestScore,
                     { destination = MenuDestination.PROFILE },
+                    { destination = MenuDestination.MAP },
                     { destination = MenuDestination.RULES },
                     { destination = MenuDestination.AUTHORS },
                     { destination = MenuDestination.SETTINGS },
+                    { destination = MenuDestination.RECORDS },
+                    onChangePlayer,
                     { showVelvetRoom = true },
                 )
                 MenuDestination.PROFILE -> DossierScreen(
@@ -121,14 +135,38 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}) {
                 )
                 MenuDestination.RULES -> RulesScreen { destination = MenuDestination.HOME }
                 MenuDestination.AUTHORS -> AuthorsScreen { destination = MenuDestination.HOME }
-                MenuDestination.SETTINGS -> SettingsScreen(syncMessage, { destination = MenuDestination.HOME }) { settings ->
+                MenuDestination.SETTINGS -> SettingsScreen(player.id, player.difficulty, syncMessage, { destination = MenuDestination.HOME }) { settings ->
                     scope.launch {
                         syncMessage = "Передаём настройки..."
                         runCatching { api.saveSettings(player.id, settings) }
-                            .onSuccess { syncMessage = "План сохранён в PostgreSQL" }
+                            .onSuccess {
+                                syncMessage = "План сохранён в PostgreSQL"
+                                onPlayerUpdated(player.copy(difficulty = settings.difficulty))
+                            }
                             .onFailure { syncMessage = "Не удалось сохранить: ${it.message ?: "нет связи"}" }
                     }
                 }
+                MenuDestination.MAP -> LevelMapScreen(
+                    onBack = { destination = MenuDestination.HOME },
+                    onStart = { destination = MenuDestination.GAME },
+                )
+                MenuDestination.GAME -> HuntGameScreen(
+                    player = player,
+                    onLeave = { destination = MenuDestination.MAP },
+                    onFinished = { round ->
+                        resultScore = round.score
+                        resultHits = round.hits
+                        resultMisses = round.misses
+                        destination = MenuDestination.RESULT
+                    },
+                )
+                MenuDestination.RESULT -> HuntResultScreen(
+                    resultScore, resultHits, resultMisses,
+                    onMap = { destination = MenuDestination.MAP },
+                    onRecords = { destination = MenuDestination.RECORDS },
+                    onMenu = { destination = MenuDestination.HOME },
+                )
+                MenuDestination.RECORDS -> RecordsScreen { destination = MenuDestination.HOME }
             }
         }
     }
@@ -137,34 +175,35 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}) {
 
 private object MenuMusicController {
     private var player: MediaPlayer? = null
-    fun play(activity: Activity) {
-        val wasCreated = player == null
-        val active = player ?: MediaPlayer.create(activity.applicationContext, R.raw.menu_theme)?.apply {
+    private var track: Int? = null
+    fun play(activity: Activity, game: Boolean) {
+        val requestedTrack = if (game) R.raw.game_theme else R.raw.menu_theme
+        if (track != requestedTrack) { player?.release(); player = null; track = requestedTrack }
+        val active = player ?: MediaPlayer.create(activity.applicationContext, requestedTrack)?.apply {
             isLooping = true
             setVolume(0.34f, 0.34f)
         }?.also { player = it }
         if (active?.isPlaying == false) active.start()
-        Log.d("AlthuntMusic", "play created=$wasCreated positionMs=${active?.currentPosition ?: -1}")
     }
     fun pause() { if (player?.isPlaying == true) player?.pause() }
-    fun release() { player?.release(); player = null }
+    fun release() { player?.release(); player = null; track = null }
 }
 
 @Composable
-private fun LoopingMenuMusic() {
+private fun LoopingMenuMusic(game: Boolean) {
     val activity = LocalContext.current as? Activity
     val lifecycleOwner = LocalContext.current as? LifecycleOwner
-    DisposableEffect(activity, lifecycleOwner) {
+    DisposableEffect(activity, lifecycleOwner, game) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> activity?.let(MenuMusicController::play)
+                Lifecycle.Event.ON_START -> activity?.let { MenuMusicController.play(it, game) }
                 Lifecycle.Event.ON_STOP -> if (activity?.isChangingConfigurations != true) MenuMusicController.pause()
                 Lifecycle.Event.ON_DESTROY -> if (activity?.isChangingConfigurations != true) MenuMusicController.release()
                 else -> Unit
             }
         }
         lifecycleOwner?.lifecycle?.addObserver(observer)
-        if (lifecycleOwner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) activity?.let(MenuMusicController::play)
+        if (lifecycleOwner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) activity?.let { MenuMusicController.play(it, game) }
         onDispose {
             lifecycleOwner?.lifecycle?.removeObserver(observer)
             if (activity?.isChangingConfigurations != true) MenuMusicController.pause()
@@ -175,10 +214,14 @@ private fun LoopingMenuMusic() {
 @Composable
 private fun MenuDashboard(
     player: SavedPlayerProfile,
+    bestScore: Int?,
     onProfile: () -> Unit,
+    onPlay: () -> Unit,
     onRules: () -> Unit,
     onAuthors: () -> Unit,
     onSettings: () -> Unit,
+    onRecords: () -> Unit,
+    onChangePlayer: () -> Unit,
     onVelvetRoom: () -> Unit,
 ) {
     LazyColumn(
@@ -190,18 +233,23 @@ private fun MenuDashboard(
             PlayerStrip(player, onProfile)
             Spacer(Modifier.height(3.dp))
             RansomTitle("ALTHUNT", Modifier.fillMaxWidth(), 50, TextAlign.Center)
+            if (bestScore != null) Text("ЛУЧШИЙ РЕЗУЛЬТАТ  /  $bestScore УЛИК", color = Color.White,
+                fontSize = 11.sp, fontWeight = FontWeight.Black,
+                modifier = Modifier.background(MenuRed, SlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
         }
         item {
             CharacterDialogue(
                 R.drawable.interrogator_dialogue_v2,
                 "Следователь",
-                "Ещё не время для охоты. Изучи дело, проверь снаряжение и жди моего сигнала.",
+                "Наводка получена. Первый район открыт. Выходи, пока след не остыл.",
             )
         }
-        item { SlashMenuItem("×", "НА ОХОТУ", "ДОСТУП ЗАКРЫТ", false, false, "play_locked") {} }
+        item { SlashMenuItem("→", "НА ВЫЛАЗКУ", "КАРТА ГОРОДА И ПЕРВАЯ НАВОДКА", true, false, "play_menu_item") { onPlay() } }
         item { SlashMenuItem("01", "ИНСТРУКТАЖ", "УСЛОВИЯ СДЕЛКИ", true, true, "rules_menu_item") { onRules() } }
         item { SlashMenuItem("02", "КОМАНДА", "ЛЮДИ ИЗ ТЕНИ", true, false, "authors_menu_item") { onAuthors() } }
         item { SlashMenuItem("03", "ПОДГОТОВКА", "ПАРАМЕТРЫ ОПЕРАЦИИ", true, true, "settings_menu_item") { onSettings() } }
+        item { SlashMenuItem("04", "РЕКОРДЫ", "ЛУЧШИЕ ДЕЛА ОПЕРАЦИИ", true, false, "records_menu_item") { onRecords() } }
+        item { SlashMenuItem("05", "СМЕНИТЬ ИГРОКА", "НОВОЕ ИЛИ СОХРАНЁННОЕ ДОСЬЕ", true, true, "switch_player_menu_item") { onChangePlayer() } }
         item {
             SlashMenuItem(
                 "?", "БАРХАТНАЯ КОМНАТА", "ВЫ ВИДИТЕ СТРАННУЮ СИНЮЮ ДВЕРЬ",
@@ -428,19 +476,30 @@ private fun AuthorCard(author: Author) {
 }
 
 @Composable
-private fun SettingsScreen(syncMessage: String, onBack: () -> Unit, onSave: (GameSettings) -> Unit) {
+private fun SettingsScreen(playerId: String, initialDifficulty: Int, syncMessage: String, onBack: () -> Unit, onSave: (GameSettings) -> Unit) {
     var speed by rememberSaveable { mutableFloatStateOf(1f) }
     var targets by rememberSaveable { mutableIntStateOf(8) }
     var leads by rememberSaveable { mutableIntStateOf(15) }
     var duration by rememberSaveable { mutableIntStateOf(60) }
+    var difficulty by rememberSaveable { mutableIntStateOf(initialDifficulty) }
+    LaunchedEffect(playerId) {
+        runCatching { BackendApi().loadSettings(playerId) }.onSuccess {
+            speed = it.gameSpeed
+            targets = it.maxInsects
+            leads = it.bonusIntervalSeconds
+            duration = it.roundDurationSeconds
+            difficulty = it.difficulty
+        }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).testTag("settings_screen")) {
         SectionHeading("ПОДГОТОВКА", "НАСТРОЙ УСЛОВИЯ ДО ВЫХОДА В ГОРОД", onBack)
+        SettingCard("СЛОЖНОСТЬ", "Уровень риска и цена каждой цели", "$difficulty / 5", difficulty.toFloat(), { difficulty = it.roundToInt() }, 1f..5f, 3)
         SettingCard("СКОРОСТЬ ОХОТЫ", "Темп движения целей", String.format(Locale.US, "%.1fx", speed), speed, { speed = it }, 0.5f..2f, 5)
         SettingCard("МАКСИМУМ АЛЬТУШЕК", "Одновременно в зоне операции", targets.toString(), targets.toFloat(), { targets = it.roundToInt() }, 3f..15f, 11)
         SettingCard("ИНТЕРВАЛ НАВОДОК", "Как часто полиция даёт бонус", "$leads сек", leads.toFloat(), { leads = it.roundToInt() }, 5f..30f, 24)
         SettingCard("ДЛИТЕЛЬНОСТЬ РАУНДА", "Время одной операции", "$duration сек", duration.toFloat(), { duration = it.roundToInt() }, 30f..180f, 14)
         Button(
-            { onSave(GameSettings(speed, targets, leads, duration)) },
+            { onSave(GameSettings(speed, targets, leads, duration, difficulty)) },
             Modifier.fillMaxWidth().height(60.dp).rotate(-1f), shape = SlashShape,
             colors = ButtonDefaults.buttonColors(containerColor = MenuRed, contentColor = Color.White),
         ) { Text("ПОДТВЕРДИТЬ ПЛАН  →", fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, fontSize = 16.sp) }

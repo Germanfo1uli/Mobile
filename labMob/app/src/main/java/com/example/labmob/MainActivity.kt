@@ -166,6 +166,11 @@ private fun LabMobApp() {
                 context.deleteLocalPlayer()
                 savedPlayer = null
             },
+            onSelectPlayer = { player ->
+                context.saveLocalPlayer(player)
+                savedPlayer = player
+                stage = AppStage.MAIN_MENU
+            },
         )
 
         AppStage.THIEVES_MESSAGE -> ThievesNoteScreen {
@@ -191,6 +196,11 @@ private fun LabMobApp() {
 
         AppStage.MAIN_MENU -> MainMenuScreen(
             player = requireNotNull(savedPlayer),
+            onPlayerUpdated = { updated ->
+                context.saveLocalPlayer(updated)
+                savedPlayer = updated
+            },
+            onChangePlayer = { stage = AppStage.ENTRY_MENU },
             onDeleteSave = {
                 context.deleteLocalPlayer()
                 savedPlayer = null
