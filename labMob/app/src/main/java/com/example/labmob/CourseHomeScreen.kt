@@ -22,6 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -95,12 +96,12 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}) {
 
     Box(Modifier.fillMaxSize().background(MenuInk).testTag("main_menu")) {
         Image(
-            painterResource(R.drawable.althunt_menu_art), null, Modifier.fillMaxSize().alpha(if (destination == MenuDestination.HOME) 0.52f else 0.18f),
+            painterResource(R.drawable.althunt_city_collage_v2), null, Modifier.fillMaxSize().alpha(if (destination == MenuDestination.HOME) 0.82f else 0.34f),
             contentScale = ContentScale.Crop,
         )
         Box(
             Modifier.fillMaxSize().background(
-                Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.12f), 0.55f to Color.Black.copy(alpha = 0.73f), 1f to MenuInk),
+                Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.05f), 0.48f to Color.Black.copy(alpha = 0.42f), 1f to MenuInk),
             ),
         )
         Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -181,24 +182,32 @@ private fun MenuDashboard(
     onVelvetRoom: () -> Unit,
 ) {
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 18.dp).testTag("menu_dashboard"),
-        verticalArrangement = Arrangement.spacedBy(13.dp),
+        Modifier.fillMaxSize().padding(horizontal = 14.dp).testTag("menu_dashboard"),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         item {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
             PlayerStrip(player, onProfile)
-            Spacer(Modifier.height(18.dp))
-            Text("ALTHUNT", color = Color.White, fontSize = 45.sp, lineHeight = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-2).sp)
-            Text(
-                "ЕЩЁ НЕ ВРЕМЯ ДЛЯ ОХОТЫ.", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp,
-                modifier = Modifier.rotate(-1f).background(MenuRed).border(2.dp, Color.White).padding(horizontal = 9.dp, vertical = 6.dp),
+            Spacer(Modifier.height(3.dp))
+            RansomTitle("ALTHUNT", Modifier.fillMaxWidth(), 50, TextAlign.Center)
+        }
+        item {
+            CharacterDialogue(
+                R.drawable.interrogator_dialogue_v2,
+                "Следователь",
+                "Ещё не время для охоты. Изучи дело, проверь снаряжение и жди моего сигнала.",
             )
         }
-        item { MenuActionCard("НА ОХОТУ", "ОПЕРАЦИЯ ЕЩЁ НЕ ГОТОВА", MenuIcon.LOCK, false, MenuMuted, "play_locked") {} }
-        item { MenuActionCard("ИНСТРУКТАЖ", "СЛЕДОВАТЕЛЬ ОБЪЯСНИТ ЗАДАЧУ", MenuIcon.BRIEFING, true, MenuRed, "rules_menu_item", onClick = onRules) }
-        item { MenuActionCard("КОМАНДА", "ТЕ, КТО ОСТАЛСЯ В ТЕНИ", MenuIcon.CREW, true, Color.White, "authors_menu_item", true, onAuthors) }
-        item { MenuActionCard("ПОДГОТОВКА", "НАСТРОИТЬ УСЛОВИЯ ОХОТЫ", MenuIcon.SETTINGS, true, MenuDeepRed, "settings_menu_item", onClick = onSettings) }
-        item { MenuActionCard("БАРХАТНАЯ КОМНАТА", "ДВЕРЬ, КОТОРОЙ НЕ ДОЛЖНО БЫТЬ", MenuIcon.DOOR, true, VelvetBlue, "velvet_room_menu_item", onClick = onVelvetRoom) }
+        item { SlashMenuItem("×", "НА ОХОТУ", "ДОСТУП ЗАКРЫТ", false, false, "play_locked") {} }
+        item { SlashMenuItem("01", "ИНСТРУКТАЖ", "УСЛОВИЯ СДЕЛКИ", true, true, "rules_menu_item") { onRules() } }
+        item { SlashMenuItem("02", "КОМАНДА", "ЛЮДИ ИЗ ТЕНИ", true, false, "authors_menu_item") { onAuthors() } }
+        item { SlashMenuItem("03", "ПОДГОТОВКА", "ПАРАМЕТРЫ ОПЕРАЦИИ", true, true, "settings_menu_item") { onSettings() } }
+        item {
+            SlashMenuItem(
+                "?", "БАРХАТНАЯ КОМНАТА", "ВЫ ВИДИТЕ СТРАННУЮ СИНЮЮ ДВЕРЬ",
+                true, false, "velvet_room_menu_item", accent = VelvetBlue,
+            ) { onVelvetRoom() }
+        }
         item { Spacer(Modifier.height(24.dp)) }
     }
 }
@@ -206,17 +215,18 @@ private fun MenuDashboard(
 @Composable
 private fun PlayerStrip(player: SavedPlayerProfile, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().rotate(-1f).background(MenuPaper).border(3.dp, MenuInk).clickable(onClick = onClick).testTag("profile_menu_item").padding(13.dp),
+        Modifier.fillMaxWidth().rotate(-1.4f).background(MenuPaper, ReverseSlashShape).clickable(onClick = onClick).testTag("profile_menu_item").padding(horizontal = 17.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(Modifier.size(54.dp).background(MenuInk).border(3.dp, MenuRed), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(52.dp).rotate(-4f).background(MenuInk, SlashShape), contentAlignment = Alignment.Center) {
             Text(player.fullName.trim().take(1).uppercase(), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black)
         }
         Column(Modifier.weight(1f)) {
             Text(player.fullName.uppercase(), color = MenuInk, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text("${player.course} КУРС  •  ${player.zodiac.uppercase()}", color = MenuRed, fontSize = 12.sp, fontWeight = FontWeight.Black)
         }
-        Text("ОТКРЫТЬ\nДОСЬЕ  →", color = MenuInk, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.End)
+        Text("ДОСЬЕ\n→", color = Color.White, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+            modifier = Modifier.rotate(3f).background(MenuRed, SlashShape).padding(horizontal = 12.dp, vertical = 8.dp))
     }
 }
 
@@ -300,16 +310,16 @@ private fun DossierScreen(player: SavedPlayerProfile, onBack: () -> Unit, onDele
         item { SectionHeading("ДОСЬЕ ЗАКЛЮЧЁННОГО", "МАТЕРИАЛЫ СЛЕДСТВИЯ // ДОПУСК ОГРАНИЧЕН", onBack) }
         item {
             Row(
-                Modifier.fillMaxWidth().rotate(-0.7f).background(MenuRed).border(3.dp, Color.White).padding(15.dp),
+                Modifier.fillMaxWidth().rotate(-1.2f).background(MenuRed, SlashShape).padding(horizontal = 20.dp, vertical = 17.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Box(Modifier.size(74.dp).background(MenuInk).border(3.dp, Color.White), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(74.dp).rotate(-5f).background(MenuInk, ReverseSlashShape), contentAlignment = Alignment.Center) {
                     Text(player.fullName.trim().take(1).uppercase(), color = Color.White, fontSize = 35.sp, fontWeight = FontWeight.Black)
                 }
                 Column(Modifier.weight(1f)) {
                     Text("ПОД НАБЛЮДЕНИЕМ", color = MenuInk, fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp,
-                        modifier = Modifier.background(Color.White).padding(horizontal = 8.dp, vertical = 4.dp))
+                        modifier = Modifier.rotate(2f).background(Color.White, SlashShape).padding(horizontal = 11.dp, vertical = 5.dp))
                     Spacer(Modifier.height(6.dp))
                     Text(player.fullName.uppercase(), color = Color.White, fontSize = 20.sp, lineHeight = 22.sp, fontWeight = FontWeight.Black)
                     Text("ДЕЛО № ${player.id.take(8).uppercase()}", color = Color.White.copy(alpha = .76f), fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -324,7 +334,7 @@ private fun DossierScreen(player: SavedPlayerProfile, onBack: () -> Unit, onDele
         item {
             Text(
                 "УДАЛИТЬ ЛОКАЛЬНОЕ СОХРАНЕНИЕ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).background(MenuInk).border(2.dp, MenuRed).clickable { showDeleteDialog = true }
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp).rotate(-1f).background(MenuInk, SlashShape).clickable { showDeleteDialog = true }
                     .testTag("delete_save_from_profile").padding(vertical = 13.dp),
             )
         }
@@ -336,11 +346,23 @@ private fun DossierScreen(player: SavedPlayerProfile, onBack: () -> Unit, onDele
 @Composable
 private fun DossierField(label: String, value: String, accent: Color) {
     Row(
-        Modifier.fillMaxWidth().rotate(if (label.length % 2 == 0) .4f else -.35f).background(accent).border(2.dp, Color.White).padding(horizontal = 15.dp, vertical = 13.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 3.dp)
+            .rotate(if (label.length % 2 == 0) .45f else -.4f)
+            .background(accent, if (label.length % 2 == 0) SlashShape else ReverseSlashShape)
+            .padding(start = 22.dp, end = 25.dp, top = 15.dp, bottom = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(label, color = Color.White.copy(alpha = .68f), fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp, modifier = Modifier.weight(.42f))
-        Text(value.uppercase(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(.58f))
+        Text(
+            label, color = Color.White.copy(alpha = .7f), fontSize = 9.sp, lineHeight = 11.sp,
+            fontWeight = FontWeight.Black, letterSpacing = .55.sp, maxLines = 2,
+            modifier = Modifier.weight(.48f),
+        )
+        Text(
+            value.uppercase(), color = Color.White, fontSize = 14.sp, lineHeight = 17.sp,
+            fontWeight = FontWeight.Black, textAlign = TextAlign.End, maxLines = 2,
+            modifier = Modifier.weight(.52f),
+        )
     }
 }
 
@@ -352,20 +374,15 @@ private fun RulesScreen(onBack: () -> Unit) {
     val html = remember { context.resources.openRawResource(R.raw.game_rules).bufferedReader().use { it.readText() } }
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp).testTag("rules_screen")) {
         SectionHeading("ИНСТРУКТАЖ", "СЛЕДОВАТЕЛЬ ГОВОРИТ ТОЛЬКО ОДИН РАЗ", onBack)
-        Row(
-            Modifier.fillMaxWidth().background(Color(0xFF1737C7)).border(3.dp, Color.White).padding(horizontal = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(painterResource(R.drawable.police_curator), "Следователь полиции", Modifier.size(86.dp), contentScale = ContentScale.Fit)
-            Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
-                Text("СЛЕДОВАТЕЛЬ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black)
-                Text("Запоминай. Повторять правила на улице никто не будет.", color = Color.White, fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-        Spacer(Modifier.height(10.dp))
+        CharacterDialogue(
+            R.drawable.interrogator_dialogue_v2,
+            "Следователь",
+            "Смотри на меня, когда я говорю. Это не игра. Ниже всё, что отделяет тебя от новой камеры.",
+            Modifier.height(210.dp),
+        )
         AndroidView(
             factory = { WebView(it).apply { settings.javaScriptEnabled = false; setBackgroundColor(android.graphics.Color.TRANSPARENT); loadDataWithBaseURL(null, html, "text/html", "UTF-8", null) } },
-            modifier = Modifier.fillMaxWidth().weight(1f).border(3.dp, Color.White),
+            modifier = Modifier.fillMaxWidth().weight(1f).rotate(-.4f).clip(ReverseSlashShape),
         )
         Spacer(Modifier.height(14.dp))
     }
@@ -394,10 +411,10 @@ private fun AuthorsScreen(onBack: () -> Unit) {
 private fun AuthorCard(author: Author) {
     val dark = author.accent != Color.White
     Row(
-        Modifier.fillMaxWidth().rotate(if (author.initials == "ГП") -1f else 1f).background(author.accent).border(3.dp, Color.White).padding(14.dp),
+        Modifier.fillMaxWidth().rotate(if (author.initials == "ГП") -1.6f else 1.3f).background(author.accent, if (author.initials == "ГП") SlashShape else ReverseSlashShape).padding(horizontal = 20.dp, vertical = 17.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(96.dp).background(MenuInk).border(3.dp, if (dark) Color.White else MenuInk)) {
+        Box(Modifier.size(108.dp).rotate(if (author.initials == "ГП") -4f else 4f).background(MenuInk, SlashShape)) {
             Image(painterResource(R.drawable.phantom_author_duo), "Масочный аватар ${author.name}", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = author.alignment)
             Text(author.initials, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic,
                 modifier = Modifier.align(Alignment.BottomStart).background(MenuInk.copy(alpha = 0.88f)).padding(horizontal = 6.dp, vertical = 3.dp))
@@ -424,7 +441,7 @@ private fun SettingsScreen(syncMessage: String, onBack: () -> Unit, onSave: (Gam
         SettingCard("ДЛИТЕЛЬНОСТЬ РАУНДА", "Время одной операции", "$duration сек", duration.toFloat(), { duration = it.roundToInt() }, 30f..180f, 14)
         Button(
             { onSave(GameSettings(speed, targets, leads, duration)) },
-            Modifier.fillMaxWidth().height(60.dp).rotate(-1f), shape = RoundedCornerShape(2.dp),
+            Modifier.fillMaxWidth().height(60.dp).rotate(-1f), shape = SlashShape,
             colors = ButtonDefaults.buttonColors(containerColor = MenuRed, contentColor = Color.White),
         ) { Text("ПОДТВЕРДИТЬ ПЛАН  →", fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, fontSize = 16.sp) }
         Text(syncMessage, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
@@ -434,7 +451,8 @@ private fun SettingsScreen(syncMessage: String, onBack: () -> Unit, onSave: (Gam
 
 @Composable
 private fun SettingCard(title: String, hint: String, shown: String, value: Float, change: (Float) -> Unit, range: ClosedFloatingPointRange<Float>, steps: Int) {
-    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp).background(MenuPaper).border(3.dp, MenuInk).padding(horizontal = 14.dp, vertical = 13.dp)) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).rotate(if (title.length % 2 == 0) .6f else -.7f)
+        .background(MenuPaper, if (title.length % 2 == 0) SlashShape else ReverseSlashShape).padding(horizontal = 20.dp, vertical = 15.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, color = MenuInk, fontSize = 15.sp, fontWeight = FontWeight.Black)
@@ -451,14 +469,9 @@ private fun SettingCard(title: String, hint: String, shown: String, value: Float
 private fun SectionHeading(title: String, subtitle: String, onBack: () -> Unit) {
     Column(Modifier.padding(top = 14.dp, bottom = 14.dp)) {
         Text("← НАЗАД", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
-            modifier = Modifier.background(MenuRed).border(2.dp, Color.White).clickable(onClick = onBack).testTag("menu_back").padding(horizontal = 12.dp, vertical = 8.dp))
+            modifier = Modifier.rotate(-2f).background(MenuRed, SlashShape).clickable(onClick = onBack).testTag("menu_back").padding(horizontal = 16.dp, vertical = 9.dp))
         Spacer(Modifier.height(10.dp))
-        Box {
-            Text(title, color = Color.Black, fontSize = 29.sp, lineHeight = 29.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic,
-                modifier = Modifier.offset(4.dp, 4.dp).background(MenuRed).padding(horizontal = 9.dp, vertical = 5.dp))
-            Text(title, color = Color.White, fontSize = 29.sp, lineHeight = 29.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic,
-                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
-        }
+        RansomTitle(title, size = if (title.length > 16) 25 else 31)
         Spacer(Modifier.height(7.dp))
         Text(subtitle, color = Color.White.copy(alpha = 0.78f), fontSize = 9.sp, fontWeight = FontWeight.Black, letterSpacing = 1.1.sp)
     }
@@ -467,15 +480,15 @@ private fun SectionHeading(title: String, subtitle: String, onBack: () -> Unit) 
 @Composable
 private fun VelvetRoomDialog(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        Box(Modifier.fillMaxWidth().rotate(-1f).background(VelvetBlue).border(4.dp, Color.White).testTag("velvet_room_dialog").padding(22.dp)) {
+        Box(Modifier.fillMaxWidth().rotate(-1f).background(VelvetBlue, SlashShape).testTag("velvet_room_dialog").padding(26.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("БАРХАТНАЯ КОМНАТА", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(14.dp))
                 Text("Вы ещё не готовы предстать перед Игорем.", color = MenuInk, fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().background(Color.White).padding(18.dp))
+                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().rotate(1f).background(Color.White, ReverseSlashShape).padding(horizontal = 24.dp, vertical = 24.dp))
                 Spacer(Modifier.height(14.dp))
                 Text("ЗАКРЫТЬ ДВЕРЬ", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
-                    modifier = Modifier.background(MenuInk).border(2.dp, Color.White).clickable(onClick = onDismiss).padding(horizontal = 18.dp, vertical = 10.dp))
+                    modifier = Modifier.background(MenuInk, ReverseSlashShape).clickable(onClick = onDismiss).padding(horizontal = 20.dp, vertical = 11.dp))
             }
         }
     }

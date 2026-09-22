@@ -6,6 +6,7 @@ import android.widget.CalendarView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -139,6 +140,7 @@ private enum class AppStage {
     ENTRY_MENU,
     THIEVES_MESSAGE,
     POLICE_MESSAGE,
+    POLICE_DOSSIER_MESSAGE,
     REGISTRATION,
     MAIN_MENU,
 }
@@ -166,22 +168,17 @@ private fun LabMobApp() {
             },
         )
 
-        AppStage.THIEVES_MESSAGE -> IntroMessageScreen(
-            cardColor = RebelRed,
-            eyebrow = "ЗАПИСКА БЕЗ ПОДПИСИ",
-            title = "ЕЩЁ НЕ КОНЕЦ.",
-            message = "Ну и вляпался ты.\n\nСкоро полиция предложит сделку. Соглашайся и делай всё, что скажут. Только не показывай, что знаешь о нас.\n\nМы рядом. Не геройствуй, не привлекай внимание и жди сигнала.\n\nВытащим тебя.",
-            signature = "ТЕ, КТО НА ТВОЕЙ СТОРОНЕ",
-            onNext = { stage = AppStage.POLICE_MESSAGE },
+        AppStage.THIEVES_MESSAGE -> ThievesNoteScreen {
+            stage = AppStage.POLICE_MESSAGE
+        }
+
+        AppStage.POLICE_MESSAGE -> PoliceInterrogationScreen(
+            page = 1,
+            onNext = { stage = AppStage.POLICE_DOSSIER_MESSAGE },
         )
 
-        AppStage.POLICE_MESSAGE -> IntroMessageScreen(
-            cardColor = Color(0xFF1737C7),
-            eyebrow = "СЛУЖЕБНЫЙ ДОПРОС",
-            title = "ВЫБОРА НЕТ.",
-            message = "С этого момента я за тобой слежу.\n\nСначала заполни досье. Имя, курс, дата рождения. Ничего не пропускай.\n\nСделаешь всё сам, закончим быстро. Начнёшь упрямиться, разговор будет другим.\n\nЯсно?",
-            signature = "СЛЕДОВАТЕЛЬ ПОЛИЦИИ",
-            avatarRes = R.drawable.police_curator,
+        AppStage.POLICE_DOSSIER_MESSAGE -> PoliceInterrogationScreen(
+            page = 2,
             onNext = { stage = AppStage.REGISTRATION },
         )
 
@@ -277,15 +274,7 @@ private fun SplashScreen(onFinished: () -> Unit) {
 }
 
 @Composable
-private fun IntroMessageScreen(
-    cardColor: Color,
-    eyebrow: String,
-    title: String,
-    message: String,
-    signature: String,
-    avatarRes: Int? = null,
-    onNext: () -> Unit,
-) {
+private fun ThievesNoteScreen(onNext: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -294,123 +283,148 @@ private fun IntroMessageScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .testTag("intro_message"),
     ) {
-        HeistBackdrop(scrimAlpha = 0.32f)
-
-        Text(
-            text = eyebrow,
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 2.sp,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(24.dp)
-                .background(Ink.copy(alpha = 0.88f))
-                .border(2.dp, Color.White)
-                .padding(horizontal = 12.dp, vertical = 7.dp),
-        )
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .padding(horizontal = 28.dp)
-                .rotate(-2.5f),
+        CrimeBackdrop(.5f)
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 24.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .offset(10.dp, 12.dp)
-                    .background(Color.Black)
-                    .border(3.dp, Color.White),
+            Text(
+                "ЗАПИСКА БЕЗ ПОДПИСИ", color = HuntInk, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp,
+                modifier = Modifier.rotate(-2f).background(HuntPaper, SlashShape).padding(horizontal = 16.dp, vertical = 7.dp),
             )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(cardColor)
-                    .border(4.dp, Color.White)
-                    .padding(horizontal = 18.dp, vertical = 18.dp),
-            ) {
-                if (avatarRes == null) {
+            Spacer(Modifier.height(14.dp))
+            RansomTitle("ЕЩЁ НЕ\nКОНЕЦ.", size = 38)
+            Spacer(Modifier.height(24.dp))
+            Box(Modifier.fillMaxWidth().rotate(-1f).background(Color(0xFFF00A2A), NoteShape)) {
+                Canvas(Modifier.matchParentSize().clip(NoteShape)) {
+                    val center = androidx.compose.ui.geometry.Offset(size.width * .52f, size.height * .74f)
+                    val radius = size.width * .72f
+                    drawCircle(Color(0xFF980019), radius, center)
+                    drawCircle(Color(0xFFEF0B2C), radius * .75f, center)
+                    drawCircle(Color(0xFFA5001D), radius * .5f, center)
+                    drawCircle(Color(0xFFF00A2A), radius * .28f, center)
+                }
+                Column(
+                    Modifier.fillMaxWidth()
+                        .padding(start = 24.dp, end = 25.dp, top = 28.dp, bottom = 30.dp),
+                ) {
                     Text(
-                        text = title,
+                        "ПОДБРОШЕНО В КАМЕРУ // НЕ ПОКАЗЫВАЙ",
                         color = Color.White,
-                        fontSize = 32.sp,
-                        lineHeight = 31.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Black,
-                        fontStyle = FontStyle.Italic,
-                        letterSpacing = (-0.5).sp,
+                        letterSpacing = .7.sp,
+                        modifier = Modifier.fillMaxWidth().background(HuntInk, SlashShape)
+                            .padding(start = 24.dp, end = 18.dp, top = 7.dp, bottom = 7.dp),
                     )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(128.dp),
-                    ) {
-                        Text(
-                            text = title,
-                            color = Color.White,
-                            fontSize = 27.sp,
-                            lineHeight = 27.sp,
-                            fontWeight = FontWeight.Black,
-                            fontStyle = FontStyle.Italic,
-                            letterSpacing = (-0.5).sp,
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .fillMaxWidth(0.56f),
-                        )
+                    Spacer(Modifier.height(18.dp))
+                    RansomNoteBlock(listOf("НУ И ВЛЯПАЛСЯ ТЫ."), 0)
+                    Spacer(Modifier.height(12.dp))
+                    RansomNoteBlock(
+                        listOf(
+                            "СКОРО ПОЛИЦИЯ ПРЕДЛОЖИТ СДЕЛКУ.",
+                            "СОГЛАШАЙСЯ И ДЕЛАЙ ВСЁ,",
+                            "ЧТО СКАЖУТ.",
+                        ),
+                        1,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    RansomNoteBlock(
+                        listOf(
+                            "НЕ ПОКАЗЫВАЙ, ЧТО ЗНАЕШЬ О НАС.",
+                            "НЕ ГЕРОЙСТВУЙ И ЖДИ СИГНАЛА.",
+                        ),
+                        2,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Image(
-                            painter = painterResource(avatarRes),
-                            contentDescription = "Следователь полиции",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .width(128.dp)
-                                .height(145.dp),
+                            painterResource(R.drawable.phantom_calling_card_emblem_v2),
+                            contentDescription = "Знак Фантомных воров",
+                            modifier = Modifier.size(92.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            "МЫ РЯДОМ.\nВЫТАЩИМ ТЕБЯ.", color = Color.White, fontSize = 13.sp,
+                            lineHeight = 17.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic,
+                            modifier = Modifier.weight(1f).background(HuntInk, ReverseSlashShape)
+                                .padding(start = 18.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
                         )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.White)
-                        .padding(horizontal = 14.dp, vertical = 14.dp),
-                ) {
+            }
+            Text(
+                "КОСНИСЬ ЭКРАНА  →", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic,
+                modifier = Modifier.padding(top = 18.dp).align(Alignment.End).rotate(-2f).background(HuntRed, ReverseSlashShape).padding(horizontal = 19.dp, vertical = 10.dp),
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun RansomNoteBlock(lines: List<String>, phase: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        lines.forEachIndexed { lineIndex, line ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                line.split(' ').forEachIndexed { wordIndex, word ->
+                    val index = wordIndex + lineIndex + phase
+                    val paperChip = index % 3 == 0
                     Text(
-                        text = message,
-                        color = Ink,
-                        fontSize = 16.sp,
-                        lineHeight = 22.sp,
-                        fontWeight = FontWeight.Bold,
+                        word,
+                        color = if (paperChip) HuntInk else Color.White,
+                        fontSize = if (index % 4 == 0) 12.sp else 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = .25.sp,
+                        modifier = Modifier.rotate(if (index % 2 == 0) -1.4f else 1.2f)
+                            .background(if (paperChip) HuntPaper else HuntInk)
+                            .padding(horizontal = 4.dp, vertical = 3.dp),
                     )
                 }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = signature,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
         }
+    }
+}
 
-        Text(
-            text = "КОСНИСЬ ЭКРАНА  →",
-            color = Color.White,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
-            letterSpacing = 1.sp,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 26.dp)
-                .background(cardColor)
-                .border(2.dp, Color.White)
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-        )
+@Composable
+private fun PoliceInterrogationScreen(page: Int, onNext: () -> Unit) {
+    val firstPage = page == 1
+    Box(
+        modifier = Modifier.fillMaxSize().background(Ink)
+            .clickable(
+                onClickLabel = if (firstPage) "Продолжить допрос" else "Перейти к досье",
+                onClick = onNext,
+            )
+            .windowInsetsPadding(WindowInsets.safeDrawing).testTag("intro_message"),
+    ) {
+        CrimeBackdrop(.56f)
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 15.dp, vertical = 22.dp),
+        ) {
+            Text(
+                "СЛУЖЕБНЫЙ ДОПРОС", color = HuntInk, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp,
+                modifier = Modifier.rotate(-2f).background(HuntPaper, SlashShape).padding(horizontal = 16.dp, vertical = 7.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            RansomTitle(if (firstPage) "ВЫБОРА НЕТ." else "НАЧНЁМ С ДОСЬЕ.", size = 35)
+            Spacer(Modifier.height(10.dp))
+            CharacterDialogue(
+                character = R.drawable.interrogator_dialogue_v2,
+                speaker = "Следователь полиции",
+                text = if (firstPage) {
+                    "С этого момента я за тобой слежу.\n\nУ тебя два варианта: сотрудничать или остаться здесь надолго."
+                } else {
+                    "Начнёшь с досье: имя, курс и дата рождения. Заполни всё сам и без пропусков.\n\nТогда закончим быстро. Понял?"
+                },
+                dialogueFraction = .56f,
+            )
+            Text(
+                if (firstPage) "ДАЛЬШЕ  →" else "ПЕРЕЙТИ К ДОСЬЕ  →",
+                color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic,
+                modifier = Modifier.padding(top = 8.dp).align(Alignment.End).rotate(-2f).background(HuntRed, ReverseSlashShape)
+                    .padding(horizontal = 19.dp, vertical = 10.dp),
+            )
+            Spacer(Modifier.height(18.dp))
+        }
     }
 }
 
@@ -438,11 +452,12 @@ fun RegistrationScreen(
             .fillMaxSize()
             .background(Ink),
     ) {
-        HeistBackdrop(scrimAlpha = 0.12f)
+        CrimeBackdrop(dim = 0.58f)
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -802,36 +817,21 @@ fun RegistrationScreen(
 @Composable
 private fun RegistrationHeader() {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Box {
-            Text(
-                text = "ТВОЁ\nДОСЬЕ",
-                color = RebelRed,
-                fontSize = 46.sp,
-                lineHeight = 40.sp,
-                fontWeight = FontWeight.Black,
-                fontStyle = FontStyle.Italic,
-                letterSpacing = (-1).sp,
-                modifier = Modifier.offset(5.dp, 5.dp),
-            )
-            Text(
-                text = "ТВОЁ\nДОСЬЕ",
-                color = Color.White,
-                fontSize = 46.sp,
-                lineHeight = 40.sp,
-                fontWeight = FontWeight.Black,
-                fontStyle = FontStyle.Italic,
-                letterSpacing = (-1).sp,
-            )
-        }
+        Spacer(Modifier.height(6.dp))
+        RansomTitle("ТВОЁ ДОСЬЕ", Modifier.fillMaxWidth(), size = 38)
+        Spacer(Modifier.height(8.dp))
         Text(
-            text = "ЗАПОЛНИ АНКЕТУ. ОТВЕЧАЙ ЧЁТКО И НИЧЕГО НЕ ПРОПУСКАЙ.",
+            text = "ПОЛИЦИИ НУЖНЫ ТВОИ ДАННЫЕ.\nЗАПОЛНИ ВСЁ ЧЁТКО, БЕЗ ПРОПУСКОВ.",
             color = Color.White,
+            fontSize = 12.sp,
+            lineHeight = 16.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 0.7.sp,
             modifier = Modifier
-                .rotate(1f)
-                .background(RebelRed)
-                .padding(horizontal = 8.dp, vertical = 3.dp),
+                .fillMaxWidth()
+                .rotate(.35f)
+                .background(RebelRed, SlashShape)
+                .padding(start = 20.dp, end = 32.dp, top = 11.dp, bottom = 12.dp),
         )
     }
 }
@@ -847,14 +847,13 @@ private fun ComicPanel(
             Modifier
                 .matchParentSize()
                 .offset(7.dp, 7.dp)
-                .background(RebelRed),
+                .background(RebelRed, ReverseSlashShape),
         )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(background)
-                .border(3.dp, Color.White)
-                .padding(16.dp),
+                .background(background, SlashShape)
+                .padding(horizontal = 20.dp, vertical = 19.dp),
             content = content,
         )
     }
@@ -871,8 +870,8 @@ private fun SectionLabel(text: String) {
         letterSpacing = 1.4.sp,
         modifier = Modifier
             .rotate(-1f)
-            .background(RebelRed)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
+            .background(RebelRed, SlashShape)
+            .padding(horizontal = 14.dp, vertical = 7.dp),
     )
 }
 
@@ -980,19 +979,7 @@ private class ZodiacPainter(private val symbol: String) : Painter() {
 
 @Composable
 private fun HeistBackdrop(scrimAlpha: Float) {
-    Box(Modifier.fillMaxSize()) {
-        Image(
-            painter = painterResource(R.drawable.heist_brush_background),
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Ink.copy(alpha = scrimAlpha)),
-        )
-    }
+    Box(Modifier.fillMaxSize()) { CrimeBackdrop(scrimAlpha.coerceIn(.35f, .82f)) }
 }
 
 internal fun zodiacFor(timeInMillis: Long): ZodiacSign {

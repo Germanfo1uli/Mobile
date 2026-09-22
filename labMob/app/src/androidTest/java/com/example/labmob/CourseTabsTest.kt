@@ -1,9 +1,11 @@
 package com.example.labmob
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.activity.compose.setContent
@@ -38,6 +40,8 @@ class CourseTabsTest {
             }
         }
 
+        composeRule.onNodeWithTag("play_locked").assertIsDisplayed().assertIsNotEnabled()
+
         composeRule.onNodeWithTag("profile_menu_item").performClick()
         composeRule.onNodeWithTag("dossier_screen").assertIsDisplayed()
         composeRule.onNodeWithText("ТЕСТОВЫЙ ИГРОК").assertIsDisplayed()
@@ -54,15 +58,17 @@ class CourseTabsTest {
         composeRule.onNodeWithTag("authors_screen").assertIsDisplayed()
         composeRule.onNodeWithTag("menu_back").performClick()
 
+        composeRule.onNodeWithTag("menu_dashboard")
+            .performScrollToNode(hasTestTag("settings_menu_item"))
         composeRule.onNodeWithTag("settings_menu_item").performClick()
         composeRule.onNodeWithTag("settings_screen").assertIsDisplayed()
         composeRule.onNodeWithTag("menu_back").performClick()
 
+        composeRule.onNodeWithTag("menu_dashboard")
+            .performScrollToNode(hasTestTag("velvet_room_menu_item"))
         composeRule.onNodeWithTag("velvet_room_menu_item").performClick()
         composeRule.onNodeWithTag("velvet_room_dialog").assertIsDisplayed()
         composeRule.onNodeWithText("Вы ещё не готовы предстать перед Игорем.").assertIsDisplayed()
-
-        composeRule.onNodeWithTag("play_locked").assertIsDisplayed().assertIsNotEnabled()
     }
 
     @Test
@@ -82,7 +88,7 @@ class CourseTabsTest {
         }
 
         composeRule.onNodeWithTag("entry_menu").assertIsDisplayed()
-        composeRule.onNodeWithText("ПРОДОЛЖИТЬ КАК ЛОКАЛЬНЫЙ ИГРОК").assertIsDisplayed()
+        composeRule.onNodeWithText("ЛОКАЛЬНЫЙ ИГРОК").assertIsDisplayed()
         composeRule.onNodeWithTag("continue_game").assertIsDisplayed()
         composeRule.onNodeWithTag("delete_save").performClick()
         composeRule.onNodeWithTag("delete_save_dialog").assertIsDisplayed()
