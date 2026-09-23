@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: althunt-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: lab5
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL
+        value: "true"
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: ROUND_SWEEP_INTERVAL_MS
+        value: "30000"

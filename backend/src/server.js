@@ -23,7 +23,7 @@ const expiryTimer = setInterval(async () => {
   } finally {
     sweeping = false;
   }
-}, 1000);
+}, config.roundSweepIntervalMs);
 expiryTimer.unref();
 
 async function shutdown(signal) {

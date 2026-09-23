@@ -9,5 +9,6 @@ export function loadConfig(env = process.env) {
     databaseUrl: env.DATABASE_URL ?? "postgres://bugs:bugs@localhost:5432/bugs",
     databaseSsl: booleanFromEnv(env.DATABASE_SSL),
     corsOrigin: env.CORS_ORIGIN ?? "*",
+    roundSweepIntervalMs: Number(env.ROUND_SWEEP_INTERVAL_MS ?? 1000),
   };
 }
