@@ -262,7 +262,7 @@ if (-not (Test-Http "http://127.0.0.1:8090/")) {
     $env:BUGS_PSQL = $psql
     $env:BUGS_PG_PORT = [string]$PostgresPort
     $env:BUGS_VIEWER_PORT = "8090"
-    $viewerProcess = Start-Process -FilePath $NodeExe -ArgumentList $ViewerScript -WindowStyle Hidden `
+    $viewerProcess = Start-Process -FilePath $NodeExe -ArgumentList "local-db-viewer.js" -WorkingDirectory $PSScriptRoot -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $RuntimeDir "viewer.stdout.log") `
         -RedirectStandardError (Join-Path $RuntimeDir "viewer.stderr.log") -PassThru
     Set-Content -LiteralPath $ViewerPidFile -Value $viewerProcess.Id -Encoding Ascii
