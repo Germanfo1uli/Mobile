@@ -1,4 +1,4 @@
-import { createApp } from "./app.js";
+import { createApp } from "./application.js";
 import { loadConfig } from "./config.js";
 import { inTransaction, pool } from "./db.js";
 import { migrate } from "./migrate.js";
