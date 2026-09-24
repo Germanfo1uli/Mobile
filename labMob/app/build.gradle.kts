@@ -4,7 +4,7 @@ plugins {
 }
 
 val bugsApiBaseUrl = providers.gradleProperty("BUGS_API_BASE_URL")
-    .orElse("http://10.0.2.2:8080/api/")
+    .orElse("https://althunt-api.vercel.app/api/")
     .get()
 
 android {

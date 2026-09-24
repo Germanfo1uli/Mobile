@@ -77,15 +77,17 @@ docker compose up --build
 
 ## Подключение Android
 
-По умолчанию приложение использует `http://10.0.2.2:8080/api/`, то есть localhost компьютера
-из Android Emulator. Для физического телефона укажите IP компьютера при сборке:
+По умолчанию приложение использует общий облачный API
+`https://althunt-api.vercel.app/api/`, подключённый к PostgreSQL в Neon. Для локального
+бэкенда в Android Emulator переопределите адрес при сборке:
 
 ```powershell
-.\gradlew.bat assembleDebug -PBUGS_API_BASE_URL=http://192.168.1.10:8080/api/
+.\gradlew.bat assembleDebug -PBUGS_API_BASE_URL=http://10.0.2.2:8080/api/
 ```
 
-Телефон и компьютер должны находиться в одной сети. Для внешнего сервера используйте HTTPS и
-запретите cleartext-трафик в AndroidManifest.
+Для физического телефона вместо `10.0.2.2` можно указать IP компьютера, если телефон и
+компьютер находятся в одной сети. Локальные HTTP-адреса требуют временно разрешить
+cleartext-трафик в AndroidManifest; production-сборка использует только HTTPS.
 
 Если телефон подключён по USB, можно обойтись без IP-адреса компьютера:
 
