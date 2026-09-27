@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { ValidationError, requireUuid, validatePlayer, validateSettings } from "./validation.js";
 import { DIFFICULTY_PRESETS, GameError } from "./game.js";
 import { registerRoundRoutes } from "./rounds.js";
+import { loadGoldRate } from "./gold.js";
 
 function playerRow(row) {
   const birthDate = row.birth_date instanceof Date
@@ -17,6 +18,7 @@ function playerRow(row) {
     difficulty: row.difficulty,
     birthDate,
     zodiac: row.zodiac,
+    totalClues: Number(row.clues ?? 0),
     createdAt: row.created_at,
   };
 }
@@ -77,6 +79,7 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
         { id: "rules", method: "GET", path: "/api/game/rules" },
         { id: "authors", method: "GET", path: "/api/game/authors" },
         { id: "records", method: "GET", path: "/api/records" },
+        { id: "gold_rate", method: "GET", path: "/api/gold-rate" },
       ],
     });
   });
@@ -121,6 +124,27 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
     response.json({ player: playerRow(result.rows[0]) });
   });
 
+  app.get("/api/players/:playerId/progress", async (request, response) => {
+    const playerId = requireUuid(request.params.playerId, "playerId");
+    const result = await pool.query(
+      `SELECT p.clues,
+              COALESCE(MAX(r.score) FILTER (WHERE r.verified = true), 0)::int AS best_score,
+              COALESCE(MAX(r.score) FILTER (WHERE r.level = 1 AND r.verified = true), 0)::int AS best_level_one
+       FROM players p LEFT JOIN game_results r ON r.player_id = p.id
+       WHERE p.id = $1 GROUP BY p.id`,
+      [playerId],
+    );
+    if (!result.rowCount) return response.status(404).json({ error: "Player not found" });
+    const best = result.rows[0].best_level_one;
+    response.json({ progress: {
+      totalClues: Number(result.rows[0].clues),
+      bestScore: result.rows[0].best_score,
+      bestLevelOneScore: best,
+      levelTwoUnlocked: best > 6000,
+      levelTwoUnlockScore: 6000,
+    } });
+  });
+
   app.get("/api/players/:playerId/results", async (request, response) => {
     const playerId = requireUuid(request.params.playerId, "playerId");
     const player = await pool.query("SELECT 1 FROM players WHERE id = $1", [playerId]);
@@ -128,12 +152,17 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
     const limit = pageInteger(request.query.limit, 20, 1, 100);
     const offset = pageInteger(request.query.offset, 0, 0, 1_000_000);
     const result = await pool.query(
-      `SELECT id, round_id AS "roundId", score, hits, misses, difficulty,
+      `SELECT id, round_id AS "roundId", score, hits, misses, difficulty, level,
               played_at AS "playedAt", verified FROM game_results
        WHERE player_id = $1 ORDER BY played_at DESC, id DESC LIMIT $2 OFFSET $3`,
       [playerId, limit, offset],
     );
     response.json({ results: result.rows, limit, offset });
+  });
+
+  app.get("/api/gold-rate", async (_request, response) => {
+    const rate = await loadGoldRate().catch(() => { throw new GameError(503, "Bank of Russia gold quotation is temporarily unavailable"); });
+    response.json({ gold: rate });
   });
 
   app.get("/api/players/:playerId/settings", async (request, response) => {
@@ -182,13 +211,13 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
     const difficulty = request.query.difficulty === undefined ? null : pageInteger(request.query.difficulty, null, 1, 5);
     const result = await pool.query(
       `WITH ranked AS (
-         SELECT r.id, r.score, r.hits, r.misses, r.difficulty, r.played_at,
+         SELECT r.id, r.score, r.hits, r.misses, r.difficulty, r.level, r.played_at,
                 p.id AS player_id, p.full_name,
                 ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY r.score DESC, r.played_at ASC, r.id ASC) AS place
          FROM game_results r JOIN players p ON p.id = r.player_id
          WHERE r.verified = true AND ($3::smallint IS NULL OR r.difficulty = $3)
        )
-       SELECT id, score, hits, misses, difficulty, played_at, player_id, full_name
+       SELECT id, score, hits, misses, difficulty, level, played_at, player_id, full_name
        FROM ranked WHERE place = 1
        ORDER BY score DESC, played_at ASC, id ASC LIMIT $1 OFFSET $2`,
       [limit, offset, difficulty],

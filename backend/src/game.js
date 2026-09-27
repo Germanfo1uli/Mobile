@@ -14,6 +14,9 @@ export const GAME_RULES = {
   theurgyCutsceneMilliseconds: 4_000,
   tiltSpeed: 0.35,
   soundCue: "alt_slide",
+  goldenIntervalSeconds: 20,
+  goldenLifetimeSeconds: 10,
+  levelTwoUnlockScore: 6000,
 };
 
 export const DIFFICULTY_PRESETS = {
@@ -44,6 +47,20 @@ function spawnTarget(state, now) {
     y: type.radius + random() * (1 - 2 * type.radius),
     vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
     positionedAt: now, expiresAt: now + 12_000,
+  };
+}
+
+function spawnGoldenTarget(state, now) {
+  const radius = 0.105;
+  const speed = 0.19 * state.settings.gameSpeed;
+  const angle = Math.PI / 4 + randomInt(4) * Math.PI / 2 + (random() - 0.5) * 0.35;
+  return {
+    id: randomUUID(), type: "alt_gold", title: "Золотая альтушка",
+    points: Math.max(100, Math.round(state.goldRate.rublesPerGram / 10)),
+    goldRate: state.goldRate.rublesPerGram, radius,
+    x: radius + random() * (1 - 2 * radius), y: radius + random() * (1 - 2 * radius),
+    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+    positionedAt: now, expiresAt: now + GAME_RULES.goldenLifetimeSeconds * 1000,
   };
 }
 
@@ -78,13 +95,16 @@ function positionAt(target, now, state) {
   };
 }
 
-export function createRoundState(player, settings, now) {
+export function createRoundState(player, settings, now, options = {}) {
+  const level = options.level ?? 1;
   const state = {
-    version: 1, difficulty: player.difficulty, settings,
+    version: 2, level, difficulty: player.difficulty, settings,
     startedAt: now, endsAt: now + settings.roundDurationSeconds * 1000,
     score: 0, hits: 0, misses: 0, bonusesCollected: 0,
     nextBonusAt: now + settings.bonusIntervalSeconds * 1000,
     bonus: null, tiltUntil: 0, theurgyUntil: 0, tilt: { x: 0, y: 0 }, targets: [],
+    goldRate: level === 2 ? options.goldRate : null,
+    nextGoldenAt: level === 2 ? now + GAME_RULES.goldenIntervalSeconds * 1000 : null,
   };
   for (let i = 0; i < settings.maxInsects; i++) state.targets.push(spawnTarget(state, now));
   return state;
@@ -94,7 +114,17 @@ export function advanceRound(state, now) {
   if (now >= state.endsAt) return false;
   if (now < state.theurgyUntil) return true;
   state.targets = state.targets.filter((target) => target.expiresAt > now);
-  while (state.targets.length < state.settings.maxInsects) state.targets.push(spawnTarget(state, now));
+  while (state.targets.filter((target) => target.type !== "alt_gold").length < state.settings.maxInsects) {
+    state.targets.push(spawnTarget(state, now));
+  }
+  if (state.level === 2 && state.goldRate && now >= state.nextGoldenAt) {
+    const interval = GAME_RULES.goldenIntervalSeconds * 1000;
+    const lastScheduledAt = state.nextGoldenAt + Math.floor((now - state.nextGoldenAt) / interval) * interval;
+    state.nextGoldenAt = lastScheduledAt + interval;
+    if (lastScheduledAt + GAME_RULES.goldenLifetimeSeconds * 1000 > now && !state.targets.some((target) => target.type === "alt_gold")) {
+      state.targets.push(spawnGoldenTarget(state, lastScheduledAt));
+    }
+  }
   if (state.bonus && state.bonus.expiresAt <= now) state.bonus = null;
   if (now >= state.nextBonusAt) {
     const interval = state.settings.bonusIntervalSeconds * 1000;
@@ -114,7 +144,7 @@ export function advanceRound(state, now) {
 export function roundSnapshot(round, now) {
   const state = round.state;
   return {
-    id: round.id, playerId: round.player_id, status: round.status,
+    id: round.id, playerId: round.player_id, status: round.status, level: state.level ?? 1,
     serverTime: new Date(now).toISOString(),
     startedAt: new Date(state.startedAt).toISOString(),
     endsAt: new Date(state.endsAt).toISOString(),
@@ -128,6 +158,7 @@ export function roundSnapshot(round, now) {
       const position = positionAt(target, now, state);
       return {
         id: target.id, type: target.type, points: target.points, radius: target.radius,
+        goldRate: target.goldRate ?? null,
         x: position.x, y: position.y,
         velocity: state.tiltUntil > now && (state.theurgyUntil ?? 0) <= now
           ? { x: state.tilt.x * GAME_RULES.tiltSpeed, y: state.tilt.y * GAME_RULES.tiltSpeed }
@@ -177,7 +208,7 @@ export function applyEvent(state, event, now) {
     const [target] = state.targets.splice(index, 1);
     state.hits++;
     state.score += target.points;
-    state.targets.push(spawnTarget(state, now));
+    if (target.type !== "alt_gold") state.targets.push(spawnTarget(state, now));
     return { type: "hit", targetId: target.id, awardedPoints: target.points };
   }
   if (event.type === "collect_bonus") {

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TARGET_TYPES, GAME_RULES, DIFFICULTY_PRESETS, applyEvent, createRoundState, roundSnapshot, advanceRound, GameError } from "../src/game.js";
+import { parseGoldXml } from "../src/gold.js";
 
 const player = { difficulty: 2 };
 const settings = { gameSpeed: 1, maxInsects: 3, bonusIntervalSeconds: 15, roundDurationSeconds: 60 };
@@ -93,4 +94,26 @@ test("theurgy bonus appears inside a random safe area", () => {
   advanceRound(state, state.nextBonusAt);
   assert.ok(state.bonus.x >= 0.14 && state.bonus.x <= 0.86);
   assert.ok(state.bonus.y >= 0.14 && state.bonus.y <= 0.86);
+});
+
+test("level two spawns a golden target every twenty seconds with CBR-proportional points", () => {
+  const now = Date.now();
+  const state = createRoundState(player, settings, now, {
+    level: 2,
+    goldRate: { rublesPerGram: 12_345.67, date: "27.09.2026" },
+  });
+  advanceRound(state, now + GAME_RULES.goldenIntervalSeconds * 1000);
+  const golden = state.targets.find((target) => target.type === "alt_gold");
+  assert.ok(golden);
+  assert.equal(golden.points, 1235);
+  assert.equal(golden.goldRate, 12_345.67);
+});
+
+test("gold XML parser selects the latest Bank of Russia gold quotation", () => {
+  const result = parseGoldXml(`<?xml version="1.0"?><Metall>
+    <Record Date="25.09.2026" Code="1"><Buy>10100,50</Buy><Sell>10200,00</Sell></Record>
+    <Record Date="26.09.2026" Code="2"><Buy>120,00</Buy><Sell>121,00</Sell></Record>
+    <Record Date="26.09.2026" Code="1"><Buy>10321,45</Buy><Sell>10400,00</Sell></Record>
+  </Metall>`);
+  assert.deepEqual(result, { rublesPerGram: 10_321.45, date: "26.09.2026" });
 });
