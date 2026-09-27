@@ -1,3 +1,4 @@
 <resources>
+    <string name="gold_widget_description">Курс золота Банка России</string>
     <string name="app_name">ALTHUNT</string>
 </resources>

@@ -78,7 +78,7 @@ fun RegistrationFlowScreen(onRegistered: (String, PlayerProfile) -> Unit) {
     )
 }
 
-private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS, MAP, GAME, RESULT, RECORDS }
+private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS, MAP, LEVEL2_BRIEFING, GAME, RESULT, RECORDS }
 
 @Composable
 fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, onChangePlayer: () -> Unit = {}, onPlayerUpdated: (SavedPlayerProfile) -> Unit = {}) {
@@ -88,14 +88,19 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
     var resultScore by rememberSaveable { mutableIntStateOf(0) }
     var resultHits by rememberSaveable { mutableIntStateOf(0) }
     var resultMisses by rememberSaveable { mutableIntStateOf(0) }
+    var selectedLevel by rememberSaveable { mutableIntStateOf(1) }
     var bestScore by remember { mutableStateOf<Int?>(null) }
+    var progress by remember { mutableStateOf<PlayerProgress?>(null) }
     val api = remember { BackendApi() }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(destination, player.id) {
-        if (destination == MenuDestination.HOME) {
-            runCatching { api.playerResults(player.id) }
-                .onSuccess { bestScore = it.maxOfOrNull(HuntRecord::score) }
+        if (destination == MenuDestination.HOME || destination == MenuDestination.MAP) {
+            runCatching { api.playerProgress(player.id) }
+                .onSuccess {
+                    progress = it
+                    bestScore = it.bestScore.takeIf { score -> score > 0 }
+                }
         }
     }
 
@@ -119,6 +124,7 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                 MenuDestination.HOME -> MenuDashboard(
                     player,
                     bestScore,
+                    progress?.totalClues,
                     { destination = MenuDestination.PROFILE },
                     { destination = MenuDestination.MAP },
                     { destination = MenuDestination.RULES },
@@ -147,11 +153,20 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                     }
                 }
                 MenuDestination.MAP -> LevelMapScreen(
+                    progress = progress,
                     onBack = { destination = MenuDestination.HOME },
-                    onStart = { destination = MenuDestination.GAME },
+                    onStart = { level ->
+                        selectedLevel = level
+                        destination = if (level == 2) MenuDestination.LEVEL2_BRIEFING else MenuDestination.GAME
+                    },
+                )
+                MenuDestination.LEVEL2_BRIEFING -> LevelTwoBriefingScreen(
+                    onBack = { destination = MenuDestination.MAP },
+                    onFinished = { destination = MenuDestination.GAME },
                 )
                 MenuDestination.GAME -> HuntGameScreen(
                     player = player,
+                    level = selectedLevel,
                     onLeave = { destination = MenuDestination.MAP },
                     onFinished = { round ->
                         resultScore = round.score
@@ -215,6 +230,7 @@ private fun LoopingMenuMusic(game: Boolean) {
 private fun MenuDashboard(
     player: SavedPlayerProfile,
     bestScore: Int?,
+    totalClues: Long?,
     onProfile: () -> Unit,
     onPlay: () -> Unit,
     onRules: () -> Unit,
@@ -233,9 +249,14 @@ private fun MenuDashboard(
             PlayerStrip(player, onProfile)
             Spacer(Modifier.height(3.dp))
             RansomTitle("ALTHUNT", Modifier.fillMaxWidth(), 50, TextAlign.Center)
-            if (bestScore != null) Text("ЛУЧШИЙ РЕЗУЛЬТАТ  /  $bestScore УЛИК", color = Color.White,
-                fontSize = 11.sp, fontWeight = FontWeight.Black,
-                modifier = Modifier.background(MenuRed, SlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("РЕКОРД  /  ${bestScore ?: 0}", color = Color.White,
+                    fontSize = 11.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.background(MenuRed, SlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+                Text("ВСЕГО УЛИК  /  ${totalClues ?: 0}", color = MenuInk,
+                    fontSize = 11.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.background(MenuPaper, ReverseSlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+            }
         }
         item {
             CharacterDialogue(

@@ -19,24 +19,34 @@ data class GameSettings(
     val difficulty: Int,
 )
 
-data class HuntTarget(val id: String, val type: String, val x: Float, val y: Float, val radius: Float, val vx: Float, val vy: Float)
+data class HuntTarget(
+    val id: String, val type: String, val x: Float, val y: Float, val radius: Float,
+    val vx: Float, val vy: Float, val points: Int, val goldRate: Double? = null,
+)
 data class HuntBonus(val id: String, val x: Float, val y: Float)
 data class HuntRound(
     val id: String, val finished: Boolean, val remainingMilliseconds: Long,
     val score: Int, val hits: Int, val misses: Int, val missPenalty: Int,
     val targets: List<HuntTarget>, val bonus: HuntBonus?,
     val sampledAtElapsedMs: Long, val tiltActive: Boolean, val theurgyRemainingMilliseconds: Long,
-    val bonusesCollected: Int,
+    val bonusesCollected: Int, val level: Int = 1,
 )
 data class HuntRecord(
     val playerName: String, val score: Int, val difficulty: Int,
-    val hits: Int, val misses: Int, val playedAt: String,
+    val hits: Int, val misses: Int, val playedAt: String, val level: Int,
+)
+data class PlayerProgress(
+    val totalClues: Long,
+    val bestScore: Int,
+    val bestLevelOneScore: Int,
+    val levelTwoUnlocked: Boolean,
+    val levelTwoUnlockScore: Int,
 )
 
 private fun JSONObject.toHuntRound(): HuntRound {
     val targetsJson = getJSONArray("targets")
     return HuntRound(
-        id = getString("id"), finished = getString("status") == "finished",
+        id = getString("id"), level = optInt("level", 1), finished = getString("status") == "finished",
         remainingMilliseconds = getLong("remainingMilliseconds"), score = getInt("score"),
         hits = getInt("hits"), misses = getInt("misses"), missPenalty = optInt("missPenalty", 10),
         targets = (0 until targetsJson.length()).map { index ->
@@ -44,7 +54,8 @@ private fun JSONObject.toHuntRound(): HuntRound {
                 HuntTarget(it.getString("id"), it.getString("type"), it.getDouble("x").toFloat(),
                     it.getDouble("y").toFloat(), it.getDouble("radius").toFloat(),
                     it.getJSONObject("velocity").getDouble("x").toFloat(),
-                    it.getJSONObject("velocity").getDouble("y").toFloat())
+                    it.getJSONObject("velocity").getDouble("y").toFloat(), it.getInt("points"),
+                    it.optDouble("goldRate").takeUnless(Double::isNaN))
             }
         },
         bonus = optJSONObject("bonus")?.let { HuntBonus(it.getString("id"), it.getDouble("x").toFloat(), it.getDouble("y").toFloat()) },
@@ -70,8 +81,8 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
         }
     }
 
-    suspend fun startRound(playerId: String): HuntRound = withContext(Dispatchers.IO) {
-        request("rounds", "POST", JSONObject().put("playerId", playerId)).getJSONObject("round").toHuntRound()
+    suspend fun startRound(playerId: String, level: Int): HuntRound = withContext(Dispatchers.IO) {
+        request("rounds", "POST", JSONObject().put("playerId", playerId).put("level", level)).getJSONObject("round").toHuntRound()
     }
 
     suspend fun getRound(roundId: String): HuntRound = withContext(Dispatchers.IO) {
@@ -102,7 +113,7 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
         (0 until records.length()).map { index ->
             records.getJSONObject(index).let {
                 HuntRecord(it.getString("full_name"), it.getInt("score"), it.getInt("difficulty"),
-                    it.getInt("hits"), it.getInt("misses"), it.getString("played_at"))
+                    it.getInt("hits"), it.getInt("misses"), it.getString("played_at"), it.optInt("level", 1))
             }
         }
     }
@@ -113,8 +124,20 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
             results.getJSONObject(index).let {
                 if (!it.optBoolean("verified", false)) null else
                     HuntRecord("", it.getInt("score"), it.getInt("difficulty"),
-                        it.getInt("hits"), it.getInt("misses"), it.getString("playedAt"))
+                        it.getInt("hits"), it.getInt("misses"), it.getString("playedAt"), it.optInt("level", 1))
             }
+        }
+    }
+
+    suspend fun playerProgress(playerId: String): PlayerProgress = withContext(Dispatchers.IO) {
+        request("players/$playerId/progress").getJSONObject("progress").let {
+            PlayerProgress(
+                totalClues = it.getLong("totalClues"),
+                bestScore = it.getInt("bestScore"),
+                bestLevelOneScore = it.getInt("bestLevelOneScore"),
+                levelTwoUnlocked = it.getBoolean("levelTwoUnlocked"),
+                levelTwoUnlockScore = it.getInt("levelTwoUnlockScore"),
+            )
         }
     }
     suspend fun createPlayer(profile: PlayerProfile): String = withContext(Dispatchers.IO) {
