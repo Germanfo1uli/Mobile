@@ -17,8 +17,8 @@ class TheurgySequenceTest {
         val sampledAt = SystemClock.elapsedRealtime()
         val round = HuntRound(
             id = "test-round", finished = false, remainingMilliseconds = 30_000,
-            score = 0, hits = 0, misses = 0, targets = emptyList(), bonus = null,
-            sampledAtElapsedMs = sampledAt, freezeActive = false,
+            score = 0, hits = 0, misses = 0, missPenalty = 15, targets = emptyList(), bonus = null,
+            sampledAtElapsedMs = sampledAt, tiltActive = false,
             theurgyRemainingMilliseconds = 3_800, bonusesCollected = 1,
         )
         composeRule.activity.runOnUiThread {

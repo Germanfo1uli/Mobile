@@ -2,6 +2,7 @@ package com.example.labmob
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.media.MediaPlayer
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -98,9 +99,21 @@ internal fun HuntGameScreen(player: SavedPlayerProfile, onLeave: () -> Unit, onF
     var round by remember { mutableStateOf<HuntRound?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var pending by remember { mutableStateOf(false) }
+    var tiltRequestInFlight by remember { mutableStateOf(false) }
     var retry by remember { mutableIntStateOf(0) }
     var frameElapsed by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val theurgyActive = (round?.theurgyRemainingMilliseconds ?: 0L) > 0L
+
+    TiltSensorEffect(enabled = round?.tiltActive == true && !theurgyActive) { x, y ->
+        val active = round ?: return@TiltSensorEffect
+        if (tiltRequestInFlight || active.finished) return@TiltSensorEffect
+        tiltRequestInFlight = true
+        scope.launch {
+            runCatching { api.updateTilt(active.id, x, y, UUID.randomUUID().toString()) }
+                .onSuccess { round = it; error = null }
+            tiltRequestInFlight = false
+        }
+    }
 
     LaunchedEffect(appContext) {
         spriteFrames = HuntSpriteCache.load(appContext)
@@ -134,6 +147,9 @@ internal fun HuntGameScreen(player: SavedPlayerProfile, onLeave: () -> Unit, onF
     }
     LaunchedEffect(round?.finished) {
         round?.takeIf { it.finished }?.let(onFinished)
+    }
+    LaunchedEffect(round?.tiltActive, round?.bonusesCollected) {
+        if (round?.tiltActive == true) playHuntSound(appContext, R.raw.alt_slide)
     }
 
     fun sendTap(x: Float, y: Float) {
@@ -195,12 +211,16 @@ internal fun HuntGameScreen(player: SavedPlayerProfile, onLeave: () -> Unit, onF
             if (current != null && sprites != null) {
                 Canvas(Modifier.fillMaxSize()) {
                     val now = frameElapsed
-                    val elapsed = if (current.freezeActive || theurgyActive) 0f else
+                    val elapsed = if (theurgyActive) 0f else
                         ((now - current.sampledAtElapsedMs).coerceIn(0L, 900L) / 1000f)
                     current.targets.forEach { target ->
-                        val x = reflectedTargetPosition(target.x + target.vx * elapsed, target.radius)
-                        val y = reflectedTargetPosition(target.y + target.vy * elapsed, target.radius)
-                        val runningFrame = if (current.freezeActive || theurgyActive) 0 else
+                        val projectedX = target.x + target.vx * elapsed
+                        val projectedY = target.y + target.vy * elapsed
+                        val x = if (current.tiltActive) projectedX.coerceIn(target.radius, 1f - target.radius)
+                            else reflectedTargetPosition(projectedX, target.radius)
+                        val y = if (current.tiltActive) projectedY.coerceIn(target.radius, 1f - target.radius)
+                            else reflectedTargetPosition(projectedY, target.radius)
+                        val runningFrame = if (theurgyActive) 0 else
                             ((now / 95L + (target.id.hashCode() and 3)) % 4L).toInt()
                         val image = (if (target.type == "alt_silver") sprites.silver else sprites.red)[runningFrame]
                         val targetSize = minOf(size.width, size.height) * target.radius * 2f
@@ -208,7 +228,7 @@ internal fun HuntGameScreen(player: SavedPlayerProfile, onLeave: () -> Unit, onF
                         val drawWidth = image.width * fit
                         val drawHeight = image.height * fit
                         val centerX = size.width * x
-                        val bob = if (current.freezeActive || theurgyActive) 0f else
+                        val bob = if (theurgyActive) 0f else
                             sin(now / 380.0 * Math.PI * 2.0).toFloat() * 1.5.dp.toPx()
                         val centerY = size.height * y - bob
                         val flip = if (target.type == "alt_silver") target.vx > 0f else target.vx < 0f
@@ -229,6 +249,11 @@ internal fun HuntGameScreen(player: SavedPlayerProfile, onLeave: () -> Unit, onF
                     modifier = Modifier.offset(x = maxWidth * bonus.x - 35.dp, y = maxHeight * bonus.y - 20.dp)
                         .background(Red, SlashShape).padding(10.dp))
             }
+            if (current?.tiltActive == true) {
+                Text("НАКЛОНЯЙ ТЕЛЕФОН", color = Ink, fontSize = 10.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp)
+                        .background(Paper, ReverseSlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+            }
             if (current == null || error != null) {
                 Column(Modifier.align(Alignment.Center).background(Paper, SlashShape).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(error ?: "ПОЛУЧАЕМ НАВОДКУ...", color = Ink, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
@@ -241,7 +266,7 @@ internal fun HuntGameScreen(player: SavedPlayerProfile, onLeave: () -> Unit, onF
             }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("КАСАЙСЯ ЦЕЛЕЙ • ПРОМАХ −5", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black,
+            Text("КАСАЙСЯ ЦЕЛЕЙ • ПРОМАХ −${round?.missPenalty ?: 10}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black,
                 modifier = Modifier.weight(1f))
             Text("ЗАВЕРШИТЬ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black,
                 modifier = Modifier.background(Red, ReverseSlashShape).clickable(enabled = round != null && !pending && !theurgyActive) {
@@ -257,6 +282,15 @@ internal fun HuntGameScreen(player: SavedPlayerProfile, onLeave: () -> Unit, onF
         }
     }
     if (theurgyActive) round?.let { TheurgySequence(it, frameElapsed) }
+    }
+}
+
+private fun playHuntSound(context: Context, resource: Int) {
+    MediaPlayer.create(context.applicationContext, resource)?.apply {
+        setVolume(0.9f, 0.9f)
+        setOnCompletionListener { it.release() }
+        setOnErrorListener { failed, _, _ -> failed.release(); true }
+        start()
     }
 }
 

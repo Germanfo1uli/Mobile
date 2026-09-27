@@ -493,7 +493,14 @@ private fun SettingsScreen(playerId: String, initialDifficulty: Int, syncMessage
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).testTag("settings_screen")) {
         SectionHeading("ПОДГОТОВКА", "НАСТРОЙ УСЛОВИЯ ДО ВЫХОДА В ГОРОД", onBack)
-        SettingCard("СЛОЖНОСТЬ", "Уровень риска и цена каждой цели", "$difficulty / 5", difficulty.toFloat(), { difficulty = it.roundToInt() }, 1f..5f, 3)
+        SettingCard("СЛОЖНОСТЬ", "Меняет цену целей и весь темп вылазки", "$difficulty / 5", difficulty.toFloat(), {
+            val preset = difficultyPreset(it.roundToInt())
+            difficulty = preset.difficulty
+            speed = preset.gameSpeed
+            targets = preset.maxInsects
+            leads = preset.bonusIntervalSeconds
+            duration = preset.roundDurationSeconds
+        }, 1f..5f, 3)
         SettingCard("СКОРОСТЬ ОХОТЫ", "Темп движения целей", String.format(Locale.US, "%.1fx", speed), speed, { speed = it }, 0.5f..2f, 5)
         SettingCard("МАКСИМУМ АЛЬТУШЕК", "Одновременно в зоне операции", targets.toString(), targets.toFloat(), { targets = it.roundToInt() }, 3f..15f, 11)
         SettingCard("ИНТЕРВАЛ НАВОДОК", "Как часто полиция даёт бонус", "$leads сек", leads.toFloat(), { leads = it.roundToInt() }, 5f..30f, 24)
@@ -506,6 +513,14 @@ private fun SettingsScreen(playerId: String, initialDifficulty: Int, syncMessage
         Text(syncMessage, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.fillMaxWidth().padding(top = 13.dp, bottom = 26.dp).testTag("backend_sync_status"), textAlign = TextAlign.Center)
     }
+}
+
+private fun difficultyPreset(level: Int): GameSettings = when (level.coerceIn(1, 5)) {
+    1 -> GameSettings(0.7f, 4, 10, 45, 1)
+    2 -> GameSettings(0.9f, 5, 12, 50, 2)
+    3 -> GameSettings(1.1f, 7, 15, 60, 3)
+    4 -> GameSettings(1.4f, 9, 18, 75, 4)
+    else -> GameSettings(1.7f, 12, 22, 90, 5)
 }
 
 @Composable

@@ -1,6 +1,7 @@
 package com.example.labmob
 
-import android.os.SystemClock
+import
+android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -23,9 +24,9 @@ data class HuntTarget(val id: String, val type: String, val x: Float, val y: Flo
 data class HuntBonus(val id: String, val x: Float, val y: Float)
 data class HuntRound(
     val id: String, val finished: Boolean, val remainingMilliseconds: Long,
-    val score: Int, val hits: Int, val misses: Int,
+    val score: Int, val hits: Int, val misses: Int, val missPenalty: Int,
     val targets: List<HuntTarget>, val bonus: HuntBonus?,
-    val sampledAtElapsedMs: Long, val freezeActive: Boolean, val theurgyRemainingMilliseconds: Long,
+    val sampledAtElapsedMs: Long, val tiltActive: Boolean, val theurgyRemainingMilliseconds: Long,
     val bonusesCollected: Int,
 )
 data class HuntRecord(
@@ -38,7 +39,7 @@ private fun JSONObject.toHuntRound(): HuntRound {
     return HuntRound(
         id = getString("id"), finished = getString("status") == "finished",
         remainingMilliseconds = getLong("remainingMilliseconds"), score = getInt("score"),
-        hits = getInt("hits"), misses = getInt("misses"),
+        hits = getInt("hits"), misses = getInt("misses"), missPenalty = optInt("missPenalty", 10),
         targets = (0 until targetsJson.length()).map { index ->
             targetsJson.getJSONObject(index).let {
                 HuntTarget(it.getString("id"), it.getString("type"), it.getDouble("x").toFloat(),
@@ -49,7 +50,7 @@ private fun JSONObject.toHuntRound(): HuntRound {
         },
         bonus = optJSONObject("bonus")?.let { HuntBonus(it.getString("id"), it.getDouble("x").toFloat(), it.getDouble("y").toFloat()) },
         sampledAtElapsedMs = SystemClock.elapsedRealtime(),
-        freezeActive = optJSONObject("effect") != null,
+        tiltActive = optJSONObject("effect")?.optString("type") == "tilt",
         theurgyRemainingMilliseconds = optLong("theurgyRemainingMilliseconds", 0L),
         bonusesCollected = optInt("bonusesCollected", 0),
     )
@@ -86,6 +87,11 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
     suspend fun collectBonus(roundId: String, bonusId: String, eventId: String): HuntRound = withContext(Dispatchers.IO) {
         request("rounds/$roundId/events", "POST", JSONObject().put("eventId", eventId).put("type", "collect_bonus")
             .put("bonusId", bonusId)).getJSONObject("round").toHuntRound()
+    }
+
+    suspend fun updateTilt(roundId: String, x: Float, y: Float, eventId: String): HuntRound = withContext(Dispatchers.IO) {
+        request("rounds/$roundId/events", "POST", JSONObject().put("eventId", eventId).put("type", "tilt")
+            .put("x", x.toDouble()).put("y", y.toDouble())).getJSONObject("round").toHuntRound()
     }
 
     suspend fun finishRound(roundId: String): HuntRound = withContext(Dispatchers.IO) {
