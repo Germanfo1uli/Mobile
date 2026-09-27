@@ -8,12 +8,20 @@ export const TARGET_TYPES = [
 ];
 
 export const GAME_RULES = {
-  missPenalty: 5,
+  missPenaltyByDifficulty: [10, 12, 15, 18, 20],
   bonusLifetimeSeconds: 5,
   tiltDurationSeconds: 10,
   theurgyCutsceneMilliseconds: 4_000,
   tiltSpeed: 0.35,
-  soundCue: "target_spotted",
+  soundCue: "alt_slide",
+};
+
+export const DIFFICULTY_PRESETS = {
+  1: { gameSpeed: 0.7, maxInsects: 4, bonusIntervalSeconds: 10, roundDurationSeconds: 45 },
+  2: { gameSpeed: 0.9, maxInsects: 5, bonusIntervalSeconds: 12, roundDurationSeconds: 50 },
+  3: { gameSpeed: 1.1, maxInsects: 7, bonusIntervalSeconds: 15, roundDurationSeconds: 60 },
+  4: { gameSpeed: 1.4, maxInsects: 9, bonusIntervalSeconds: 18, roundDurationSeconds: 75 },
+  5: { gameSpeed: 1.7, maxInsects: 12, bonusIntervalSeconds: 22, roundDurationSeconds: 90 },
 };
 
 export class GameError extends Error {
@@ -27,13 +35,14 @@ const random = () => randomInt(1_000_000) / 1_000_000;
 
 function spawnTarget(state, now) {
   const type = TARGET_TYPES[randomInt(TARGET_TYPES.length)];
-  const speed = type.speed * state.settings.gameSpeed * (1 + (state.difficulty - 1) * 0.2);
-  const direction = random() < 0.5 ? -1 : 1;
+  const speed = type.speed * state.settings.gameSpeed;
+  const quadrant = randomInt(4);
+  const angle = Math.PI / 4 + quadrant * Math.PI / 2 + (random() - 0.5) * 0.42;
   return {
     id: randomUUID(), type: type.id, points: type.points * state.difficulty,
     radius: type.radius, x: type.radius + random() * (1 - 2 * type.radius),
     y: type.radius + random() * (1 - 2 * type.radius),
-    vx: direction * speed, vy: (random() - 0.5) * speed * 0.24,
+    vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
     positionedAt: now, expiresAt: now + 12_000,
   };
 }
@@ -93,7 +102,8 @@ export function advanceRound(state, now) {
     state.nextBonusAt = lastScheduledAt + interval;
     if (lastScheduledAt + GAME_RULES.bonusLifetimeSeconds * 1000 > now) {
       state.bonus = {
-        id: randomUUID(), type: "theurgy", x: 0.5, y: 0.5,
+        id: randomUUID(), type: "theurgy",
+        x: 0.14 + random() * 0.72, y: 0.14 + random() * 0.72,
         expiresAt: lastScheduledAt + GAME_RULES.bonusLifetimeSeconds * 1000,
       };
     }
@@ -111,6 +121,7 @@ export function roundSnapshot(round, now) {
     remainingMilliseconds: round.status === "active" ? Math.max(0, state.endsAt - Math.max(now, state.theurgyUntil ?? 0)) : 0,
     theurgyRemainingMilliseconds: round.status === "active" ? Math.max(0, (state.theurgyUntil ?? 0) - now) : 0,
     score: state.score, hits: state.hits, misses: state.misses,
+    missPenalty: GAME_RULES.missPenaltyByDifficulty[state.difficulty - 1],
     difficulty: state.difficulty, settings: state.settings,
     bonusesCollected: state.bonusesCollected,
     targets: round.status === "active" ? state.targets.map((target) => {
@@ -118,7 +129,9 @@ export function roundSnapshot(round, now) {
       return {
         id: target.id, type: target.type, points: target.points, radius: target.radius,
         x: position.x, y: position.y,
-        velocity: { x: position.vx, y: position.vy },
+        velocity: state.tiltUntil > now && (state.theurgyUntil ?? 0) <= now
+          ? { x: state.tilt.x * GAME_RULES.tiltSpeed, y: state.tilt.y * GAME_RULES.tiltSpeed }
+          : { x: position.vx, y: position.vy },
         expiresAt: new Date(target.expiresAt).toISOString(),
       };
     }) : [],
@@ -156,9 +169,10 @@ export function applyEvent(state, event, now) {
       return Math.hypot(event.x - position.x, event.y - position.y) <= target.radius;
     });
     if (index < 0) {
+      const penalty = GAME_RULES.missPenaltyByDifficulty[state.difficulty - 1];
       state.misses++;
-      state.score = Math.max(0, state.score - GAME_RULES.missPenalty);
-      return { type: "miss", penalty: GAME_RULES.missPenalty };
+      state.score = Math.max(0, state.score - penalty);
+      return { type: "miss", penalty };
     }
     const [target] = state.targets.splice(index, 1);
     state.hits++;

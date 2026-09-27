@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import { readFile } from "node:fs/promises";
 import { ValidationError, requireUuid, validatePlayer, validateSettings } from "./validation.js";
-import { GameError } from "./game.js";
+import { DIFFICULTY_PRESETS, GameError } from "./game.js";
 import { registerRoundRoutes } from "./rounds.js";
 
 function playerRow(row) {
@@ -97,7 +97,13 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
          RETURNING *`,
         [player.fullName, player.gender, player.course, player.difficulty, player.birthDate, player.zodiac],
       );
-      await client.query("INSERT INTO player_settings(player_id) VALUES ($1)", [result.rows[0].id]);
+      const preset = DIFFICULTY_PRESETS[player.difficulty];
+      await client.query(
+        `INSERT INTO player_settings(player_id, game_speed, max_insects, bonus_interval_seconds, round_duration_seconds)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [result.rows[0].id, preset.gameSpeed, preset.maxInsects,
+          preset.bonusIntervalSeconds, preset.roundDurationSeconds],
+      );
       return result.rows[0];
     });
     response.status(201).json({ player: playerRow(created) });
