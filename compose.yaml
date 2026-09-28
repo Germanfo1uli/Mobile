@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: bugs
       POSTGRES_USER: bugs
@@ -17,6 +18,7 @@ services:
 
   api:
     build: ./backend
+    restart: unless-stopped
     environment:
       PORT: 8080
       DATABASE_URL: postgres://bugs:bugs@postgres:5432/bugs

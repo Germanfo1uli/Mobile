@@ -82,3 +82,23 @@ renderWave("theurgy_reentry.wav", 0.8, (random) => {
     return sweep + slam;
   };
 });
+
+renderWave("alt_slide.wav", 1.15, (random) => {
+  let scrape = 0;
+  return (time) => {
+    const noise = random();
+    scrape = scrape * 0.90 + noise * 0.10;
+    const fallDuration = 0.70;
+    const fallTime = Math.min(time, fallDuration);
+    const frequency = 820 - 690 * (fallTime / fallDuration);
+    const squeal = Math.sin(2 * Math.PI * frequency * time + 7 * Math.sin(time * 31))
+      * Math.exp(-time * 2.2) * 0.22;
+    const friction = scrape * Math.sin(Math.PI * Math.min(1, time / fallDuration)) * 0.24;
+    const impactTime = Math.max(0, time - fallDuration);
+    const impact = time >= fallDuration
+      ? (Math.sin(2 * Math.PI * (105 * impactTime - 32 * impactTime * impactTime)) * 0.52 + noise * 0.18)
+        * Math.exp(-impactTime * 13)
+      : 0;
+    return squeal + friction + impact;
+  };
+});

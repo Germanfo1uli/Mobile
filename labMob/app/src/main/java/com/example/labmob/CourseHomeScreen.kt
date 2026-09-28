@@ -78,30 +78,40 @@ fun RegistrationFlowScreen(onRegistered: (String, PlayerProfile) -> Unit) {
     )
 }
 
-private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS, MAP, GAME, RESULT, RECORDS }
+private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS, MAP, LEVEL2_BRIEFING, GAME, RESULT, RECORDS, VELVET }
 
 @Composable
 fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, onChangePlayer: () -> Unit = {}, onPlayerUpdated: (SavedPlayerProfile) -> Unit = {}) {
     var destination by rememberSaveable { mutableStateOf(MenuDestination.HOME) }
-    var showVelvetRoom by rememberSaveable { mutableStateOf(false) }
+    var showVelvetUnlocked by rememberSaveable { mutableStateOf(false) }
     var syncMessage by rememberSaveable { mutableStateOf("Настройки ещё не менялись") }
     var resultScore by rememberSaveable { mutableIntStateOf(0) }
     var resultHits by rememberSaveable { mutableIntStateOf(0) }
     var resultMisses by rememberSaveable { mutableIntStateOf(0) }
+    var selectedLevel by rememberSaveable { mutableIntStateOf(1) }
     var bestScore by remember { mutableStateOf<Int?>(null) }
+    var progress by remember { mutableStateOf<PlayerProgress?>(null) }
     val api = remember { BackendApi() }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(destination, player.id) {
-        if (destination == MenuDestination.HOME) {
-            runCatching { api.playerResults(player.id) }
-                .onSuccess { bestScore = it.maxOfOrNull(HuntRecord::score) }
+        if (destination == MenuDestination.HOME || destination == MenuDestination.MAP || destination == MenuDestination.RESULT) {
+            runCatching { api.playerProgress(player.id) }
+                .onSuccess {
+                    progress = it
+                    bestScore = it.bestScore.takeIf { score -> score > 0 }
+                }
         }
     }
 
-    LoopingMenuMusic(destination == MenuDestination.GAME)
-    BackHandler(enabled = showVelvetRoom || (destination != MenuDestination.HOME && destination != MenuDestination.GAME)) {
-        if (showVelvetRoom) showVelvetRoom = false else destination = MenuDestination.HOME
+    val musicTrack = when (destination) {
+        MenuDestination.GAME -> R.raw.game_theme
+        MenuDestination.VELVET -> R.raw.velvet_theme
+        else -> R.raw.menu_theme
+    }
+    LoopingMenuMusic(musicTrack)
+    BackHandler(enabled = destination != MenuDestination.HOME && destination != MenuDestination.GAME) {
+        destination = MenuDestination.HOME
     }
 
     Box(Modifier.fillMaxSize().background(MenuInk).testTag("main_menu")) {
@@ -119,6 +129,7 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                 MenuDestination.HOME -> MenuDashboard(
                     player,
                     bestScore,
+                    progress?.totalClues,
                     { destination = MenuDestination.PROFILE },
                     { destination = MenuDestination.MAP },
                     { destination = MenuDestination.RULES },
@@ -126,7 +137,8 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                     { destination = MenuDestination.SETTINGS },
                     { destination = MenuDestination.RECORDS },
                     onChangePlayer,
-                    { showVelvetRoom = true },
+                    progress?.velvetRoomUnlocked == true,
+                    { destination = MenuDestination.VELVET },
                 )
                 MenuDestination.PROFILE -> DossierScreen(
                     player = player,
@@ -147,16 +159,29 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                     }
                 }
                 MenuDestination.MAP -> LevelMapScreen(
+                    progress = progress,
                     onBack = { destination = MenuDestination.HOME },
-                    onStart = { destination = MenuDestination.GAME },
+                    onStart = { level ->
+                        selectedLevel = level
+                        destination = if (level == 2) MenuDestination.LEVEL2_BRIEFING else MenuDestination.GAME
+                    },
+                )
+                MenuDestination.LEVEL2_BRIEFING -> LevelTwoBriefingScreen(
+                    onBack = { destination = MenuDestination.MAP },
+                    onFinished = { destination = MenuDestination.GAME },
                 )
                 MenuDestination.GAME -> HuntGameScreen(
                     player = player,
+                    level = selectedLevel,
                     onLeave = { destination = MenuDestination.MAP },
                     onFinished = { round ->
                         resultScore = round.score
                         resultHits = round.hits
                         resultMisses = round.misses
+                        if (selectedLevel == 2 && progress?.velvetRoomUnlocked != true) {
+                            showVelvetUnlocked = true
+                            progress = progress?.copy(velvetRoomUnlocked = true)
+                        }
                         destination = MenuDestination.RESULT
                     },
                 )
@@ -167,17 +192,21 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                     onMenu = { destination = MenuDestination.HOME },
                 )
                 MenuDestination.RECORDS -> RecordsScreen { destination = MenuDestination.HOME }
+                MenuDestination.VELVET -> VelvetRoomScreen(
+                    player = player,
+                    onBack = { destination = MenuDestination.HOME },
+                    onBalanceChanged = { balance -> progress = progress?.copy(totalClues = balance) },
+                )
             }
         }
     }
-    if (showVelvetRoom) VelvetRoomDialog { showVelvetRoom = false }
+    if (showVelvetUnlocked) VelvetUnlockedDialog { showVelvetUnlocked = false }
 }
 
 private object MenuMusicController {
     private var player: MediaPlayer? = null
     private var track: Int? = null
-    fun play(activity: Activity, game: Boolean) {
-        val requestedTrack = if (game) R.raw.game_theme else R.raw.menu_theme
+    fun play(activity: Activity, requestedTrack: Int) {
         if (track != requestedTrack) { player?.release(); player = null; track = requestedTrack }
         val active = player ?: MediaPlayer.create(activity.applicationContext, requestedTrack)?.apply {
             isLooping = true
@@ -190,20 +219,20 @@ private object MenuMusicController {
 }
 
 @Composable
-private fun LoopingMenuMusic(game: Boolean) {
+private fun LoopingMenuMusic(requestedTrack: Int) {
     val activity = LocalContext.current as? Activity
     val lifecycleOwner = LocalContext.current as? LifecycleOwner
-    DisposableEffect(activity, lifecycleOwner, game) {
+    DisposableEffect(activity, lifecycleOwner, requestedTrack) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> activity?.let { MenuMusicController.play(it, game) }
+                Lifecycle.Event.ON_START -> activity?.let { MenuMusicController.play(it, requestedTrack) }
                 Lifecycle.Event.ON_STOP -> if (activity?.isChangingConfigurations != true) MenuMusicController.pause()
                 Lifecycle.Event.ON_DESTROY -> if (activity?.isChangingConfigurations != true) MenuMusicController.release()
                 else -> Unit
             }
         }
         lifecycleOwner?.lifecycle?.addObserver(observer)
-        if (lifecycleOwner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) activity?.let { MenuMusicController.play(it, game) }
+        if (lifecycleOwner?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == true) activity?.let { MenuMusicController.play(it, requestedTrack) }
         onDispose {
             lifecycleOwner?.lifecycle?.removeObserver(observer)
             if (activity?.isChangingConfigurations != true) MenuMusicController.pause()
@@ -215,6 +244,7 @@ private fun LoopingMenuMusic(game: Boolean) {
 private fun MenuDashboard(
     player: SavedPlayerProfile,
     bestScore: Int?,
+    totalClues: Long?,
     onProfile: () -> Unit,
     onPlay: () -> Unit,
     onRules: () -> Unit,
@@ -222,6 +252,7 @@ private fun MenuDashboard(
     onSettings: () -> Unit,
     onRecords: () -> Unit,
     onChangePlayer: () -> Unit,
+    velvetUnlocked: Boolean,
     onVelvetRoom: () -> Unit,
 ) {
     LazyColumn(
@@ -233,9 +264,14 @@ private fun MenuDashboard(
             PlayerStrip(player, onProfile)
             Spacer(Modifier.height(3.dp))
             RansomTitle("ALTHUNT", Modifier.fillMaxWidth(), 50, TextAlign.Center)
-            if (bestScore != null) Text("ЛУЧШИЙ РЕЗУЛЬТАТ  /  $bestScore УЛИК", color = Color.White,
-                fontSize = 11.sp, fontWeight = FontWeight.Black,
-                modifier = Modifier.background(MenuRed, SlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("РЕКОРД  /  ${bestScore ?: 0}", color = Color.White,
+                    fontSize = 11.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.background(MenuRed, SlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+                Text("ВСЕГО УЛИК  /  ${totalClues ?: 0}", color = MenuInk,
+                    fontSize = 11.sp, fontWeight = FontWeight.Black,
+                    modifier = Modifier.background(MenuPaper, ReverseSlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+            }
         }
         item {
             CharacterDialogue(
@@ -252,8 +288,9 @@ private fun MenuDashboard(
         item { SlashMenuItem("05", "СМЕНИТЬ ИГРОКА", "НОВОЕ ИЛИ СОХРАНЁННОЕ ДОСЬЕ", true, true, "switch_player_menu_item") { onChangePlayer() } }
         item {
             SlashMenuItem(
-                "?", "БАРХАТНАЯ КОМНАТА", "ВЫ ВИДИТЕ СТРАННУЮ СИНЮЮ ДВЕРЬ",
-                true, false, "velvet_room_menu_item", accent = VelvetBlue,
+                "?", "БАРХАТНАЯ КОМНАТА",
+                if (velvetUnlocked) "ВЫ ВИДИТЕ СТРАННУЮ СИНЮЮ ДВЕРЬ" else "ЗАКРЫТО • ПРОЙДИТЕ ВТОРОЙ УРОВЕНЬ",
+                velvetUnlocked, false, "velvet_room_menu_item", accent = VelvetBlue,
             ) { onVelvetRoom() }
         }
         item { Spacer(Modifier.height(24.dp)) }
@@ -381,14 +418,18 @@ private fun DossierScreen(player: SavedPlayerProfile, onBack: () -> Unit, onDele
         item { DossierField("ЗНАК ЗОДИАКА", player.zodiac, MenuRed) }
         item {
             Text(
-                "УДАЛИТЬ ЛОКАЛЬНОЕ СОХРАНЕНИЕ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
+                "УДАЛИТЬ ДОСЬЕ И РЕЗУЛЬТАТЫ", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp).rotate(-1f).background(MenuInk, SlashShape).clickable { showDeleteDialog = true }
                     .testTag("delete_save_from_profile").padding(vertical = 13.dp),
             )
         }
         item { Spacer(Modifier.height(20.dp)) }
     }
-    if (showDeleteDialog) DeleteSaveDialog(onConfirm = onDeleteSave, onDismiss = { showDeleteDialog = false })
+    if (showDeleteDialog) DeleteSaveDialog(
+        playerId = player.id,
+        onDeleted = onDeleteSave,
+        onDismiss = { showDeleteDialog = false },
+    )
 }
 
 @Composable
@@ -493,7 +534,14 @@ private fun SettingsScreen(playerId: String, initialDifficulty: Int, syncMessage
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp).testTag("settings_screen")) {
         SectionHeading("ПОДГОТОВКА", "НАСТРОЙ УСЛОВИЯ ДО ВЫХОДА В ГОРОД", onBack)
-        SettingCard("СЛОЖНОСТЬ", "Уровень риска и цена каждой цели", "$difficulty / 5", difficulty.toFloat(), { difficulty = it.roundToInt() }, 1f..5f, 3)
+        SettingCard("СЛОЖНОСТЬ", "Меняет цену целей и весь темп вылазки", "$difficulty / 5", difficulty.toFloat(), {
+            val preset = difficultyPreset(it.roundToInt())
+            difficulty = preset.difficulty
+            speed = preset.gameSpeed
+            targets = preset.maxInsects
+            leads = preset.bonusIntervalSeconds
+            duration = preset.roundDurationSeconds
+        }, 1f..5f, 3)
         SettingCard("СКОРОСТЬ ОХОТЫ", "Темп движения целей", String.format(Locale.US, "%.1fx", speed), speed, { speed = it }, 0.5f..2f, 5)
         SettingCard("МАКСИМУМ АЛЬТУШЕК", "Одновременно в зоне операции", targets.toString(), targets.toFloat(), { targets = it.roundToInt() }, 3f..15f, 11)
         SettingCard("ИНТЕРВАЛ НАВОДОК", "Как часто полиция даёт бонус", "$leads сек", leads.toFloat(), { leads = it.roundToInt() }, 5f..30f, 24)
@@ -506,6 +554,14 @@ private fun SettingsScreen(playerId: String, initialDifficulty: Int, syncMessage
         Text(syncMessage, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
             modifier = Modifier.fillMaxWidth().padding(top = 13.dp, bottom = 26.dp).testTag("backend_sync_status"), textAlign = TextAlign.Center)
     }
+}
+
+private fun difficultyPreset(level: Int): GameSettings = when (level.coerceIn(1, 5)) {
+    1 -> GameSettings(0.7f, 4, 10, 45, 1)
+    2 -> GameSettings(0.9f, 5, 12, 50, 2)
+    3 -> GameSettings(1.1f, 7, 15, 60, 3)
+    4 -> GameSettings(1.4f, 9, 18, 75, 4)
+    else -> GameSettings(1.7f, 12, 22, 90, 5)
 }
 
 @Composable
@@ -537,16 +593,16 @@ private fun SectionHeading(title: String, subtitle: String, onBack: () -> Unit) 
 }
 
 @Composable
-private fun VelvetRoomDialog(onDismiss: () -> Unit) {
+private fun VelvetUnlockedDialog(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        Box(Modifier.fillMaxWidth().rotate(-1f).background(VelvetBlue, SlashShape).testTag("velvet_room_dialog").padding(26.dp)) {
+        Box(Modifier.fillMaxWidth().rotate(-1f).background(VelvetBlue, SlashShape).testTag("velvet_unlocked_dialog").padding(26.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("БАРХАТНАЯ КОМНАТА", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
+                Text("СТРАННАЯ ДВЕРЬ", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(14.dp))
-                Text("Вы ещё не готовы предстать перед Игорем.", color = MenuInk, fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Black,
+                Text("После вылазки вы замечаете синюю дверь, которой здесь раньше не было. Бархатная комната открыта.", color = MenuInk, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.Black,
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().rotate(1f).background(Color.White, ReverseSlashShape).padding(horizontal = 24.dp, vertical = 24.dp))
                 Spacer(Modifier.height(14.dp))
-                Text("ЗАКРЫТЬ ДВЕРЬ", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
+                Text("Я ВИЖУ ЕЁ", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
                     modifier = Modifier.background(MenuInk, ReverseSlashShape).clickable(onClick = onDismiss).padding(horizontal = 20.dp, vertical = 11.dp))
             }
         }

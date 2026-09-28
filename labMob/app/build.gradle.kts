@@ -4,7 +4,7 @@ plugins {
 }
 
 val bugsApiBaseUrl = providers.gradleProperty("BUGS_API_BASE_URL")
-    .orElse("http://10.0.2.2:8080/api/")
+    .orElse("https://althunt-api.vercel.app/api/")
     .get()
 
 android {
@@ -54,6 +54,11 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.retrofit.core)
+    implementation(libs.retrofit.scalars)
+    implementation(libs.koin.android)
+    implementation(libs.koin.androidx.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -19,39 +19,76 @@ data class GameSettings(
     val difficulty: Int,
 )
 
-data class HuntTarget(val id: String, val type: String, val x: Float, val y: Float, val radius: Float, val vx: Float, val vy: Float)
-data class HuntBonus(val id: String, val x: Float, val y: Float)
+data class HuntTarget(
+    val id: String, val type: String, val x: Float, val y: Float, val radius: Float,
+    val vx: Float, val vy: Float, val points: Int, val goldRate: Double? = null,
+)
+data class HuntBonus(val id: String, val x: Float, val y: Float, val title: String)
 data class HuntRound(
     val id: String, val finished: Boolean, val remainingMilliseconds: Long,
-    val score: Int, val hits: Int, val misses: Int,
+    val score: Int, val hits: Int, val misses: Int, val missPenalty: Int,
     val targets: List<HuntTarget>, val bonus: HuntBonus?,
-    val sampledAtElapsedMs: Long, val freezeActive: Boolean, val theurgyRemainingMilliseconds: Long,
-    val bonusesCollected: Int,
+    val sampledAtElapsedMs: Long, val tiltActive: Boolean, val theurgyRemainingMilliseconds: Long,
+    val bonusesCollected: Int, val level: Int = 1,
+    val selectedTheurgy: String = "gravity", val effectType: String? = null,
+    val effectMultiplier: Int = 1,
 )
 data class HuntRecord(
     val playerName: String, val score: Int, val difficulty: Int,
-    val hits: Int, val misses: Int, val playedAt: String,
+    val hits: Int, val misses: Int, val playedAt: String, val level: Int,
+)
+data class PlayerProgress(
+    val totalClues: Long,
+    val bestScore: Int,
+    val bestLevelOneScore: Int,
+    val levelTwoUnlocked: Boolean,
+    val levelTwoUnlockScore: Int,
+    val velvetRoomUnlocked: Boolean,
+)
+
+data class TheurgyItem(
+    val id: String,
+    val title: String,
+    val description: String,
+    val price: Long,
+    val effectType: String,
+    val owned: Boolean,
+    val selected: Boolean,
+)
+
+data class VelvetRoomState(
+    val unlocked: Boolean,
+    val introSeen: Boolean,
+    val totalClues: Long,
+    val selectedTheurgy: String,
+    val theurgies: List<TheurgyItem>,
 )
 
 private fun JSONObject.toHuntRound(): HuntRound {
     val targetsJson = getJSONArray("targets")
     return HuntRound(
-        id = getString("id"), finished = getString("status") == "finished",
+        id = getString("id"), level = optInt("level", 1), finished = getString("status") == "finished",
         remainingMilliseconds = getLong("remainingMilliseconds"), score = getInt("score"),
-        hits = getInt("hits"), misses = getInt("misses"),
+        hits = getInt("hits"), misses = getInt("misses"), missPenalty = optInt("missPenalty", 10),
         targets = (0 until targetsJson.length()).map { index ->
             targetsJson.getJSONObject(index).let {
                 HuntTarget(it.getString("id"), it.getString("type"), it.getDouble("x").toFloat(),
                     it.getDouble("y").toFloat(), it.getDouble("radius").toFloat(),
                     it.getJSONObject("velocity").getDouble("x").toFloat(),
-                    it.getJSONObject("velocity").getDouble("y").toFloat())
+                    it.getJSONObject("velocity").getDouble("y").toFloat(), it.getInt("points"),
+                    it.optDouble("goldRate").takeUnless(Double::isNaN))
             }
         },
-        bonus = optJSONObject("bonus")?.let { HuntBonus(it.getString("id"), it.getDouble("x").toFloat(), it.getDouble("y").toFloat()) },
+        bonus = optJSONObject("bonus")?.let {
+            HuntBonus(it.getString("id"), it.getDouble("x").toFloat(), it.getDouble("y").toFloat(), it.optString("title", "Теургия"))
+        },
         sampledAtElapsedMs = SystemClock.elapsedRealtime(),
-        freezeActive = optJSONObject("effect") != null,
+        tiltActive = optJSONObject("effect")?.optString("type") == "tilt",
         theurgyRemainingMilliseconds = optLong("theurgyRemainingMilliseconds", 0L),
         bonusesCollected = optInt("bonusesCollected", 0),
+        selectedTheurgy = optString("selectedTheurgy", "gravity"),
+        effectType = optJSONObject("effect")?.optString("type")?.takeIf { it.isNotBlank() },
+        effectMultiplier = optJSONObject("effect")?.optInt("multiplier", 1) ?: 1,
     )
 }
 
@@ -70,8 +107,8 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
         }
     }
 
-    suspend fun startRound(playerId: String): HuntRound = withContext(Dispatchers.IO) {
-        request("rounds", "POST", JSONObject().put("playerId", playerId)).getJSONObject("round").toHuntRound()
+    suspend fun startRound(playerId: String, level: Int): HuntRound = withContext(Dispatchers.IO) {
+        request("rounds", "POST", JSONObject().put("playerId", playerId).put("level", level)).getJSONObject("round").toHuntRound()
     }
 
     suspend fun getRound(roundId: String): HuntRound = withContext(Dispatchers.IO) {
@@ -88,6 +125,11 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
             .put("bonusId", bonusId)).getJSONObject("round").toHuntRound()
     }
 
+    suspend fun updateTilt(roundId: String, x: Float, y: Float, eventId: String): HuntRound = withContext(Dispatchers.IO) {
+        request("rounds/$roundId/events", "POST", JSONObject().put("eventId", eventId).put("type", "tilt")
+            .put("x", x.toDouble()).put("y", y.toDouble())).getJSONObject("round").toHuntRound()
+    }
+
     suspend fun finishRound(roundId: String): HuntRound = withContext(Dispatchers.IO) {
         request("rounds/$roundId/finish", "POST", JSONObject()).getJSONObject("round").toHuntRound()
     }
@@ -97,7 +139,7 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
         (0 until records.length()).map { index ->
             records.getJSONObject(index).let {
                 HuntRecord(it.getString("full_name"), it.getInt("score"), it.getInt("difficulty"),
-                    it.getInt("hits"), it.getInt("misses"), it.getString("played_at"))
+                    it.getInt("hits"), it.getInt("misses"), it.getString("played_at"), it.optInt("level", 1))
             }
         }
     }
@@ -108,9 +150,40 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
             results.getJSONObject(index).let {
                 if (!it.optBoolean("verified", false)) null else
                     HuntRecord("", it.getInt("score"), it.getInt("difficulty"),
-                        it.getInt("hits"), it.getInt("misses"), it.getString("playedAt"))
+                        it.getInt("hits"), it.getInt("misses"), it.getString("playedAt"), it.optInt("level", 1))
             }
         }
+    }
+
+    suspend fun playerProgress(playerId: String): PlayerProgress = withContext(Dispatchers.IO) {
+        request("players/$playerId/progress").getJSONObject("progress").let {
+            PlayerProgress(
+                totalClues = it.getLong("totalClues"),
+                bestScore = it.getInt("bestScore"),
+                bestLevelOneScore = it.getInt("bestLevelOneScore"),
+                levelTwoUnlocked = it.getBoolean("levelTwoUnlocked"),
+                levelTwoUnlockScore = it.getInt("levelTwoUnlockScore"),
+                velvetRoomUnlocked = it.optBoolean("velvetRoomUnlocked", false),
+            )
+        }
+    }
+
+    suspend fun velvetRoom(playerId: String): VelvetRoomState = withContext(Dispatchers.IO) {
+        request("players/$playerId/theurgies").getJSONObject("velvetRoom").toVelvetRoomState()
+    }
+
+    suspend fun purchaseTheurgy(playerId: String, theurgyId: String): VelvetRoomState = withContext(Dispatchers.IO) {
+        request("players/$playerId/theurgies/$theurgyId/purchase", "POST", JSONObject())
+            .getJSONObject("velvetRoom").toVelvetRoomState()
+    }
+
+    suspend fun selectTheurgy(playerId: String, theurgyId: String): VelvetRoomState = withContext(Dispatchers.IO) {
+        request("players/$playerId/theurgies/selected", "PUT", JSONObject().put("theurgyId", theurgyId))
+            .getJSONObject("velvetRoom").toVelvetRoomState()
+    }
+
+    suspend fun markVelvetIntroSeen(playerId: String) = withContext(Dispatchers.IO) {
+        request("players/$playerId/velvet-intro-seen", "POST", JSONObject())
     }
     suspend fun createPlayer(profile: PlayerProfile): String = withContext(Dispatchers.IO) {
         val body = JSONObject()
@@ -125,6 +198,10 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
             .put("zodiac", profile.zodiac.title)
 
         request("players", "POST", body).getJSONObject("player").getString("id")
+    }
+
+    suspend fun deletePlayer(playerId: String) = withContext(Dispatchers.IO) {
+        request("players/$playerId", "DELETE")
     }
 
     suspend fun saveSettings(playerId: String, settings: GameSettings) = withContext(Dispatchers.IO) {
@@ -164,9 +241,32 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
                 val message = runCatching { JSONObject(payload).optString("error") }.getOrNull()
                 error(message?.takeIf { it.isNotBlank() } ?: "API error $status")
             }
-            JSONObject(payload)
+            if (payload.isBlank()) JSONObject() else JSONObject(payload)
         } finally {
             connection.disconnect()
         }
     }
+}
+
+private fun JSONObject.toVelvetRoomState(): VelvetRoomState {
+    val items = getJSONArray("theurgies")
+    return VelvetRoomState(
+        unlocked = getBoolean("unlocked"),
+        introSeen = optBoolean("introSeen", false),
+        totalClues = getLong("totalClues"),
+        selectedTheurgy = getString("selectedTheurgy"),
+        theurgies = (0 until items.length()).map { index ->
+            items.getJSONObject(index).let {
+                TheurgyItem(
+                    id = it.getString("id"),
+                    title = it.getString("title"),
+                    description = it.getString("description"),
+                    price = it.getLong("price"),
+                    effectType = it.getString("effectType"),
+                    owned = it.getBoolean("owned"),
+                    selected = it.getBoolean("selected"),
+                )
+            }
+        },
+    )
 }

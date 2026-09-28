@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.launch
 
 @Composable
 fun EntryChoiceScreen(
@@ -80,7 +81,8 @@ fun EntryChoiceScreen(
         }
     }
     if (showDeleteDialog) DeleteSaveDialog(
-        onConfirm = { showDeleteDialog = false; onDeleteSave() },
+        playerId = requireNotNull(savedPlayer).id,
+        onDeleted = { showDeleteDialog = false; onDeleteSave() },
         onDismiss = { showDeleteDialog = false },
     )
     if (showPlayerPicker) PlayerPickerDialog(
@@ -124,17 +126,35 @@ private fun PlayerPickerDialog(onDismiss: () -> Unit, onSelect: (SavedPlayerProf
 }
 
 @Composable
-fun DeleteSaveDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun DeleteSaveDialog(playerId: String, onDeleted: () -> Unit, onDismiss: () -> Unit) {
+    var deleting by rememberSaveable { mutableStateOf(false) }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     Dialog(onDismissRequest = onDismiss) {
         Box(Modifier.fillMaxWidth().rotate(-1f)) {
             Box(Modifier.matchParentSize().offset(8.dp, 8.dp).background(HuntRed, ReverseSlashShape))
             Column(Modifier.fillMaxWidth().background(HuntPaper, SlashShape).padding(24.dp).testTag("delete_save_dialog")) {
                 Text("СТЕРЕТЬ ДОСЬЕ?", color = HuntInk, fontSize = 27.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-                Text("Локальные данные исчезнут навсегда. Полиция не станет их восстанавливать.", color = HuntInk.copy(alpha = .72f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
+                Text("Досье исчезнет с этого телефона и сервера. Игрок пропадёт из общего рейтинга, а результаты восстановить будет нельзя.", color = HuntInk.copy(alpha = .72f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
+                error?.let {
+                    Text(it, color = HuntRed, fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(top = 10.dp))
+                }
                 Spacer(Modifier.height(17.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    DialogChoice("ОТМЕНА", false, Modifier.weight(1f), onDismiss)
-                    DialogChoice("УДАЛИТЬ", true, Modifier.weight(1f).testTag("confirm_delete_save"), onConfirm)
+                    DialogChoice("ОТМЕНА", false, Modifier.weight(1f), onDismiss, enabled = !deleting)
+                    DialogChoice(if (deleting) "УДАЛЯЕМ..." else "УДАЛИТЬ", true, Modifier.weight(1f).testTag("confirm_delete_save"), {
+                        deleting = true
+                        error = null
+                        scope.launch {
+                            runCatching { BackendApi().deletePlayer(playerId) }
+                                .onSuccess { onDeleted() }
+                                .onFailure {
+                                    error = "Не удалось удалить досье: ${it.message ?: "сервер недоступен"}"
+                                    deleting = false
+                                }
+                        }
+                    }, enabled = !deleting)
                 }
             }
         }
@@ -142,11 +162,11 @@ fun DeleteSaveDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun DialogChoice(text: String, danger: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun DialogChoice(text: String, danger: Boolean, modifier: Modifier, onClick: () -> Unit, enabled: Boolean = true) {
     Text(
         text, color = androidx.compose.ui.graphics.Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
         textAlign = TextAlign.Center,
         modifier = modifier.rotate(if (danger) -1f else 1f).background(if (danger) HuntRed else HuntInk, SlashShape)
-            .clickable(onClick = onClick).padding(vertical = 12.dp),
+            .clickable(enabled = enabled, onClick = onClick).padding(vertical = 12.dp),
     )
 }
