@@ -168,6 +168,9 @@ internal fun HuntGameScreen(
     var spriteFrames by remember { mutableStateOf<HuntSpriteFrames?>(null) }
     var frameElapsed by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val theurgyActive = (round?.theurgyRemainingMilliseconds ?: 0L) > 0L
+    val freezeActive = round?.effectType == "freeze"
+    val multiplierActive = round?.effectType == "multiplier"
+    val shieldActive = round?.effectType == "shield"
 
     LaunchedEffect(player.id, level) { viewModel.begin(player.id, level) }
     LaunchedEffect(appContext) { spriteFrames = HuntSpriteCache.load(appContext) }
@@ -181,7 +184,10 @@ internal fun HuntGameScreen(
         }
     }
     LaunchedEffect(round?.finished, round?.id) {
-        round?.takeIf(HuntRound::finished)?.let(onFinished)
+        round?.takeIf(HuntRound::finished)?.let { finished ->
+            viewModel.consumeFinishedRound(finished.id)
+            onFinished(finished)
+        }
     }
     LaunchedEffect(round?.tiltActive, round?.bonusesCollected) {
         if (round?.tiltActive == true) playHuntSound(appContext, R.raw.alt_slide)
@@ -226,7 +232,7 @@ internal fun HuntGameScreen(
                 if (current != null && sprites != null) {
                     Canvas(Modifier.fillMaxSize()) {
                         val now = frameElapsed
-                        val elapsed = if (theurgyActive) 0f else ((now - current.sampledAtElapsedMs).coerceIn(0L, 900L) / 1000f)
+                        val elapsed = if (theurgyActive || freezeActive) 0f else ((now - current.sampledAtElapsedMs).coerceIn(0L, 900L) / 1000f)
                         current.targets.forEach { target ->
                             val projectedX = target.x + target.vx * elapsed
                             val projectedY = target.y + target.vy * elapsed
@@ -239,14 +245,14 @@ internal fun HuntGameScreen(
                                 "alt_gold" -> sprites.gold
                                 else -> sprites.red
                             }
-                            val runningFrame = if (theurgyActive) 0 else ((now / 95L + (target.id.hashCode() and 3)) % frames.size).toInt()
+                            val runningFrame = if (theurgyActive || freezeActive) 0 else ((now / 95L + (target.id.hashCode() and 3)) % frames.size).toInt()
                             val image = frames[runningFrame]
                             val targetSize = minOf(size.width, size.height) * target.radius * 2f
                             val fit = targetSize / maxOf(image.width, image.height)
                             val drawWidth = image.width * fit
                             val drawHeight = image.height * fit
                             val centerX = size.width * x
-                            val bob = if (theurgyActive) 0f else sin(now / 380.0 * Math.PI * 2.0).toFloat() * 1.5.dp.toPx()
+                            val bob = if (theurgyActive || freezeActive) 0f else sin(now / 380.0 * Math.PI * 2.0).toFloat() * 1.5.dp.toPx()
                             val centerY = size.height * y - bob
                             val flip = if (target.type == "alt_silver") target.vx > 0f else target.vx < 0f
                             withTransform({ if (flip) scale(-1f, 1f, Offset(centerX, centerY)) }) {
@@ -266,7 +272,7 @@ internal fun HuntGameScreen(
                     )
                 }
                 current?.bonus?.let { bonus ->
-                    Text("ТЕУРГИЯ", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black,
+                    Text(bonus.title.uppercase(), color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black,
                         modifier = Modifier.offset(x = maxWidth * bonus.x - 35.dp, y = maxHeight * bonus.y - 20.dp)
                             .background(Red, SlashShape).padding(10.dp))
                 }
@@ -274,6 +280,21 @@ internal fun HuntGameScreen(
                     Text("НАКЛОНЯЙ ТЕЛЕФОН", color = Ink, fontSize = 10.sp, fontWeight = FontWeight.Black,
                         modifier = Modifier.align(Alignment.TopCenter).padding(top = 44.dp)
                             .background(Paper, ReverseSlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+                }
+                if (freezeActive) {
+                    Text("ВРЕМЯ ЦЕЛЕЙ ОСТАНОВЛЕНО", color = Ink, fontSize = 10.sp, fontWeight = FontWeight.Black,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 44.dp)
+                            .background(Color(0xFFBBD4FF), ReverseSlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+                }
+                if (multiplierActive) {
+                    Text("УСИЛЕНИЕ • УЛИКИ ×${round?.effectMultiplier ?: 2}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 44.dp)
+                            .background(Red, ReverseSlashShape).padding(horizontal = 14.dp, vertical = 7.dp))
+                }
+                if (shieldActive) {
+                    Text("ЗЕРКАЛЬНЫЙ ДОГОВОР • ШТРАФЫ ОТМЕНЕНЫ", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(top = 44.dp)
+                            .background(Color(0xFF213B8F), ReverseSlashShape).padding(horizontal = 12.dp, vertical = 7.dp))
                 }
                 if (current == null || uiState.error != null) {
                     Column(Modifier.align(Alignment.Center).background(Paper, SlashShape).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
