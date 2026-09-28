@@ -102,7 +102,7 @@ export function registerRoundRoutes(app, { inTransaction }) {
         gameSpeed: Number(settings.game_speed), maxInsects: settings.max_insects,
         bonusIntervalSeconds: settings.bonus_interval_seconds,
         roundDurationSeconds: settings.round_duration_seconds,
-      }, now, { level, goldRate });
+      }, now, { level, goldRate, selectedTheurgy: playerResult.rows[0].selected_theurgy });
       const created = await client.query("INSERT INTO game_rounds(player_id, state) VALUES ($1, $2) RETURNING *", [playerId, state]);
       return { round: roundSnapshot(created.rows[0], now), resumed: false };
     });

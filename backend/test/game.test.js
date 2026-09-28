@@ -96,6 +96,72 @@ test("theurgy bonus appears inside a random safe area", () => {
   assert.ok(state.bonus.y >= 0.14 && state.bonus.y <= 0.86);
 });
 
+test("chrono theurgy freezes targets after the cutscene", () => {
+  const now = Date.now();
+  const state = createRoundState(player, settings, now, { selectedTheurgy: "chrono" });
+  state.bonus = { id: "bonus", expiresAt: now + 5_000 };
+  applyEvent(state, { type: "collect_bonus", bonusId: "bonus" }, now);
+  const effectStarts = now + GAME_RULES.theurgyCutsceneMilliseconds;
+  const first = roundSnapshot({ id: "round", player_id: "player", status: "active", state }, effectStarts);
+  const later = roundSnapshot({ id: "round", player_id: "player", status: "active", state }, effectStarts + 2_000);
+  assert.equal(later.effect.type, "freeze");
+  assert.equal(later.targets[0].x, first.targets[0].x);
+  assert.equal(later.targets[0].y, first.targets[0].y);
+});
+
+test("scarlet theurgy doubles captured target value", () => {
+  const now = Date.now();
+  const state = createRoundState(player, settings, now, { selectedTheurgy: "scarlet" });
+  state.bonus = { id: "bonus", expiresAt: now + 5_000 };
+  applyEvent(state, { type: "collect_bonus", bonusId: "bonus" }, now);
+  const effectStarts = now + GAME_RULES.theurgyCutsceneMilliseconds;
+  const target = state.targets[0];
+  const hit = applyEvent(state, { type: "tap", x: target.x, y: target.y }, effectStarts);
+  assert.equal(hit.awardedPoints, target.points * 2);
+  assert.equal(state.score, target.points * 2);
+  const snapshot = roundSnapshot({ id: "round", player_id: "player", status: "active", state }, effectStarts);
+  assert.equal(snapshot.effect.type, "multiplier");
+  assert.equal(applyEvent(state, { type: "tap", x: 0, y: 0 }, effectStarts).penalty, 24);
+  assert.ok(Math.abs(snapshot.targets[0].velocity.x) > Math.abs(state.targets[0].vx));
+});
+
+test("mirror theurgy cancels miss penalties", () => {
+  const now = Date.now();
+  const state = createRoundState(player, settings, now, { selectedTheurgy: "mirror" });
+  state.score = 100;
+  state.bonus = { id: "bonus", expiresAt: now + 5_000 };
+  applyEvent(state, { type: "collect_bonus", bonusId: "bonus" }, now);
+  const effectStarts = now + GAME_RULES.theurgyCutsceneMilliseconds;
+  const miss = applyEvent(state, { type: "tap", x: 0, y: 0 }, effectStarts);
+  assert.equal(miss.penalty, 0);
+  assert.equal(state.score, 100);
+  const snapshot = roundSnapshot({ id: "round", player_id: "player", status: "active", state }, effectStarts);
+  assert.ok(Math.abs(snapshot.targets[0].velocity.x) >= Math.abs(state.targets[0].vx) * 1.99);
+});
+
+test("moonfall triples points and armageddon clears the playfield", () => {
+  const now = Date.now();
+  const moonfall = createRoundState(player, settings, now, { selectedTheurgy: "moonfall" });
+  moonfall.bonus = { id: "moon", expiresAt: now + 5_000 };
+  applyEvent(moonfall, { type: "collect_bonus", bonusId: "moon" }, now);
+  const effectStarts = now + GAME_RULES.theurgyCutsceneMilliseconds;
+  const target = moonfall.targets[0];
+  assert.equal(applyEvent(moonfall, { type: "tap", x: target.x, y: target.y }, effectStarts).awardedPoints, target.points * 3);
+  const moonSnapshot = roundSnapshot({ id: "round", player_id: "player", status: "active", state: moonfall }, effectStarts);
+  assert.ok(moonSnapshot.targets[0].radius < moonfall.targets[0].radius);
+  assert.equal(applyEvent(moonfall, { type: "tap", x: 0, y: 0 }, effectStarts).penalty, 36);
+
+  const armageddon = createRoundState(player, settings, now, { selectedTheurgy: "armageddon" });
+  const expected = armageddon.targets.reduce((sum, item) => sum + item.points * 5, 0);
+  const count = armageddon.targets.length;
+  armageddon.bonus = { id: "last", expiresAt: now + 5_000 };
+  const result = applyEvent(armageddon, { type: "collect_bonus", bonusId: "last" }, now);
+  assert.equal(result.awardedPoints, expected);
+  assert.equal(armageddon.score, expected);
+  assert.equal(armageddon.hits, count);
+  assert.equal(armageddon.targets.length, 0);
+});
+
 test("level two spawns a golden target every twenty seconds with CBR-proportional points", () => {
   const now = Date.now();
   const state = createRoundState(player, settings, now, {

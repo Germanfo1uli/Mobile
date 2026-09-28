@@ -5,6 +5,7 @@ import { ValidationError, requireUuid, validatePlayer, validateSettings } from "
 import { DIFFICULTY_PRESETS, GameError } from "./game.js";
 import { registerRoundRoutes } from "./rounds.js";
 import { loadGoldRate } from "./gold.js";
+import { THEURGIES, findTheurgy } from "./theurgies.js";
 
 function playerRow(row) {
   const birthDate = row.birth_date instanceof Date
@@ -80,6 +81,8 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
         { id: "authors", method: "GET", path: "/api/game/authors" },
         { id: "records", method: "GET", path: "/api/records" },
         { id: "gold_rate", method: "GET", path: "/api/gold-rate" },
+        { id: "velvet_room", method: "GET", path: "/api/players/:playerId/theurgies" },
+        { id: "delete_player", method: "DELETE", path: "/api/players/:playerId" },
       ],
     });
   });
@@ -124,12 +127,20 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
     response.json({ player: playerRow(result.rows[0]) });
   });
 
+  app.delete("/api/players/:playerId", async (request, response) => {
+    const playerId = requireUuid(request.params.playerId, "playerId");
+    await pool.query("DELETE FROM players WHERE id = $1", [playerId]);
+    response.status(204).end();
+  });
+
   app.get("/api/players/:playerId/progress", async (request, response) => {
     const playerId = requireUuid(request.params.playerId, "playerId");
     const result = await pool.query(
       `SELECT p.clues,
               COALESCE(MAX(r.score) FILTER (WHERE r.verified = true), 0)::int AS best_score,
-              COALESCE(MAX(r.score) FILTER (WHERE r.level = 1 AND r.verified = true), 0)::int AS best_level_one
+              COALESCE(MAX(r.score) FILTER (WHERE r.level = 1 AND r.verified = true), 0)::int AS best_level_one,
+              EXISTS(SELECT 1 FROM game_results vr
+                     WHERE vr.player_id = p.id AND vr.level = 2 AND vr.verified = true) AS velvet_room_unlocked
        FROM players p LEFT JOIN game_results r ON r.player_id = p.id
        WHERE p.id = $1 GROUP BY p.id`,
       [playerId],
@@ -142,7 +153,101 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
       bestLevelOneScore: best,
       levelTwoUnlocked: best > 6000,
       levelTwoUnlockScore: 6000,
+      velvetRoomUnlocked: result.rows[0].velvet_room_unlocked,
     } });
+  });
+
+  app.get("/api/players/:playerId/theurgies", async (request, response) => {
+    const playerId = requireUuid(request.params.playerId, "playerId");
+    const player = await pool.query(
+      `SELECT p.clues, p.selected_theurgy, p.velvet_intro_seen,
+              EXISTS(SELECT 1 FROM game_results r
+                     WHERE r.player_id = p.id AND r.level = 2 AND r.verified = true) AS unlocked
+       FROM players p WHERE p.id = $1`,
+      [playerId],
+    );
+    if (!player.rowCount) return response.status(404).json({ error: "Player not found" });
+    const owned = await pool.query("SELECT theurgy_id FROM player_theurgies WHERE player_id = $1", [playerId]);
+    const ownedIds = new Set(["gravity", ...owned.rows.map((row) => row.theurgy_id)]);
+    response.json({ velvetRoom: velvetRoomPayload(player.rows[0], ownedIds) });
+  });
+
+  app.post("/api/players/:playerId/velvet-intro-seen", async (request, response) => {
+    const playerId = requireUuid(request.params.playerId, "playerId");
+    const result = await pool.query(
+      `UPDATE players p SET velvet_intro_seen = true, updated_at = now()
+       WHERE p.id = $1 AND EXISTS(
+         SELECT 1 FROM game_results r WHERE r.player_id = p.id AND r.level = 2 AND r.verified = true
+       ) RETURNING p.id`,
+      [playerId],
+    );
+    if (!result.rowCount) return response.status(403).json({ error: "Velvet Room is still locked" });
+    response.json({ introSeen: true });
+  });
+
+  app.post("/api/players/:playerId/theurgies/:theurgyId/purchase", async (request, response) => {
+    const playerId = requireUuid(request.params.playerId, "playerId");
+    const theurgy = findTheurgy(request.params.theurgyId);
+    if (!theurgy || theurgy.price <= 0) throw new GameError(400, "Unknown purchasable theurgy");
+    const payload = await inTransaction(async (client) => {
+      const player = await client.query(
+        `SELECT p.clues, p.selected_theurgy, p.velvet_intro_seen,
+                EXISTS(SELECT 1 FROM game_results r
+                       WHERE r.player_id = p.id AND r.level = 2 AND r.verified = true) AS unlocked
+         FROM players p WHERE p.id = $1 FOR UPDATE`,
+        [playerId],
+      );
+      if (!player.rowCount) throw new GameError(404, "Player not found");
+      if (!player.rows[0].unlocked) throw new GameError(403, "Velvet Room is still locked");
+      const existing = await client.query(
+        "SELECT 1 FROM player_theurgies WHERE player_id = $1 AND theurgy_id = $2",
+        [playerId, theurgy.id],
+      );
+      if (!existing.rowCount) {
+        const charged = await client.query(
+          "UPDATE players SET clues = clues - $2, updated_at = now() WHERE id = $1 AND clues >= $2 RETURNING clues, selected_theurgy",
+          [playerId, theurgy.price],
+        );
+        if (!charged.rowCount) throw new GameError(409, "Not enough clues");
+        player.rows[0] = { ...player.rows[0], ...charged.rows[0] };
+        await client.query(
+          "INSERT INTO player_theurgies(player_id, theurgy_id) VALUES ($1, $2)",
+          [playerId, theurgy.id],
+        );
+      }
+      const owned = await client.query("SELECT theurgy_id FROM player_theurgies WHERE player_id = $1", [playerId]);
+      return velvetRoomPayload(player.rows[0], new Set(["gravity", ...owned.rows.map((row) => row.theurgy_id)]));
+    });
+    response.status(201).json({ velvetRoom: payload });
+  });
+
+  app.put("/api/players/:playerId/theurgies/selected", async (request, response) => {
+    const playerId = requireUuid(request.params.playerId, "playerId");
+    const theurgy = findTheurgy(request.body?.theurgyId);
+    if (!theurgy) throw new GameError(400, "Unknown theurgy");
+    const payload = await inTransaction(async (client) => {
+      const player = await client.query(
+        `SELECT p.clues, p.selected_theurgy, p.velvet_intro_seen,
+                EXISTS(SELECT 1 FROM game_results r
+                       WHERE r.player_id = p.id AND r.level = 2 AND r.verified = true) AS unlocked
+         FROM players p WHERE p.id = $1 FOR UPDATE`,
+        [playerId],
+      );
+      if (!player.rowCount) throw new GameError(404, "Player not found");
+      if (!player.rows[0].unlocked) throw new GameError(403, "Velvet Room is still locked");
+      if (theurgy.price > 0) {
+        const owned = await client.query(
+          "SELECT 1 FROM player_theurgies WHERE player_id = $1 AND theurgy_id = $2",
+          [playerId, theurgy.id],
+        );
+        if (!owned.rowCount) throw new GameError(409, "Theurgy has not been purchased");
+      }
+      await client.query("UPDATE players SET selected_theurgy = $2, updated_at = now() WHERE id = $1", [playerId, theurgy.id]);
+      player.rows[0].selected_theurgy = theurgy.id;
+      const owned = await client.query("SELECT theurgy_id FROM player_theurgies WHERE player_id = $1", [playerId]);
+      return velvetRoomPayload(player.rows[0], new Set(["gravity", ...owned.rows.map((row) => row.theurgy_id)]));
+    });
+    response.json({ velvetRoom: payload });
   });
 
   app.get("/api/players/:playerId/results", async (request, response) => {
@@ -244,6 +349,20 @@ function pageInteger(value, fallback, min, max) {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < min || number > max) throw new ValidationError({ query: `Expected value from ${min} to ${max}` });
   return number;
+}
+
+function velvetRoomPayload(player, ownedIds) {
+  return {
+    unlocked: Boolean(player.unlocked),
+    introSeen: Boolean(player.velvet_intro_seen),
+    totalClues: Number(player.clues),
+    selectedTheurgy: player.selected_theurgy ?? "gravity",
+    theurgies: THEURGIES.map((item) => ({
+      ...item,
+      owned: ownedIds.has(item.id),
+      selected: (player.selected_theurgy ?? "gravity") === item.id,
+    })),
+  };
 }
 
 function monitoringPage() {
