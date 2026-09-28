@@ -6,12 +6,16 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.RemoteViews
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class GoldRateWidgetProvider : AppWidgetProvider() {
@@ -28,20 +32,41 @@ class GoldRateWidgetProvider : AppWidgetProvider() {
     }
 
     private fun refresh(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ids.forEach { manager.updateAppWidget(it, views(context, "ОБНОВЛЯЕМ…", "ЦБ РФ")) }
+        if (ids.isEmpty()) return
+        val cache = context.getSharedPreferences(CACHE_NAME, Context.MODE_PRIVATE)
+        val cachedValue = cache.getString(KEY_VALUE, null)
+        val currentCaption = "ЗОЛОТО • ${phoneDate()}"
+        ids.forEach {
+            manager.updateAppWidget(
+                it,
+                views(context, cachedValue ?: "ОБНОВЛЯЕМ…", if (cachedValue == null) "ЗОЛОТО • ЦБ РФ" else currentCaption),
+            )
+        }
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            val result = runCatching { GoldRateRepository().latest() }
-            val rate = result.getOrNull()
-            val value = rate?.let {
-                NumberFormat.getNumberInstance(Locale.forLanguageTag("ru-RU")).apply {
-                    minimumFractionDigits = 2
-                    maximumFractionDigits = 2
-                }.format(it.rublesPerGram) + " ₽/Г"
-            } ?: "НЕТ СВЯЗИ"
-            val caption = rate?.let { "ЦБ • ${it.date}" } ?: "КОСНИСЬ, ЧТОБЫ ПОВТОРИТЬ"
-            ids.forEach { manager.updateAppWidget(it, views(context, value, caption)) }
-            pending.finish()
+            try {
+                val result = runCatching { withTimeout(10_000) { GoldRateRepository().latest() } }
+                val rate = result.getOrNull()
+                val value = rate?.let {
+                    NumberFormat.getNumberInstance(Locale.forLanguageTag("ru-RU")).apply {
+                        minimumFractionDigits = 2
+                        maximumFractionDigits = 2
+                    }.format(it.rublesPerGram) + " ₽/Г"
+                } ?: cachedValue ?: "НЕТ СВЯЗИ"
+                val caption = if (rate != null || cachedValue != null) {
+                    currentCaption
+                } else {
+                    "КОСНИСЬ, ЧТОБЫ ПОВТОРИТЬ"
+                }
+                if (rate != null) {
+                    cache.edit().putString(KEY_VALUE, value).putString(KEY_CAPTION, caption).apply()
+                } else {
+                    Log.w(TAG, "Unable to refresh gold widget", result.exceptionOrNull())
+                }
+                ids.forEach { manager.updateAppWidget(it, views(context, value, caption)) }
+            } finally {
+                pending.finish()
+            }
         }
     }
 
@@ -58,5 +83,11 @@ class GoldRateWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_REFRESH = "com.example.labmob.REFRESH_GOLD_WIDGET"
+        private const val CACHE_NAME = "gold_widget_cache"
+        private const val KEY_VALUE = "value"
+        private const val KEY_CAPTION = "caption"
+        private const val TAG = "GoldRateWidget"
     }
 }
+
+private fun phoneDate(): String = SimpleDateFormat("dd.MM.yyyy", Locale.forLanguageTag("ru-RU")).format(Date())

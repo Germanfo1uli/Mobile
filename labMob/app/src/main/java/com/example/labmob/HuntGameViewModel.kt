@@ -97,6 +97,15 @@ class HuntGameViewModel(
         }
     }
 
+    fun consumeFinishedRound(roundId: String) {
+        val current = _uiState.value.round
+        if (current?.id != roundId || !current.finished) return
+        pollingJob?.cancel()
+        savedStateHandle[KEY_ROUND_ID] = null
+        savedStateHandle[KEY_GAME] = null
+        _uiState.value = HuntGameUiState()
+    }
+
     private fun startPolling(roundId: String) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
