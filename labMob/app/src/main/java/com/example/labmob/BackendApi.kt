@@ -115,9 +115,11 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
         request("rounds/$roundId").getJSONObject("round").toHuntRound()
     }
 
-    suspend fun tap(roundId: String, x: Float, y: Float, eventId: String): HuntRound = withContext(Dispatchers.IO) {
-        request("rounds/$roundId/events", "POST", JSONObject().put("eventId", eventId).put("type", "tap")
-            .put("x", x.toDouble()).put("y", y.toDouble())).getJSONObject("round").toHuntRound()
+    suspend fun tap(roundId: String, x: Float, y: Float, eventId: String, targetId: String? = null): HuntRound = withContext(Dispatchers.IO) {
+        val event = JSONObject().put("eventId", eventId).put("type", "tap")
+            .put("x", x.toDouble()).put("y", y.toDouble())
+        if (targetId != null) event.put("targetId", targetId)
+        request("rounds/$roundId/events", "POST", event).getJSONObject("round").toHuntRound()
     }
 
     suspend fun collectBonus(roundId: String, bonusId: String, eventId: String): HuntRound = withContext(Dispatchers.IO) {

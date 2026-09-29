@@ -164,6 +164,7 @@ internal fun HuntGameScreen(
     val viewModel: HuntGameViewModel = koinViewModel()
     val uiState by viewModel.uiState.collectAsState()
     val round = uiState.round
+    val latestRound by rememberUpdatedState(round)
     val appContext = LocalContext.current.applicationContext
     var spriteFrames by remember { mutableStateOf<HuntSpriteFrames?>(null) }
     var frameElapsed by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
@@ -219,9 +220,19 @@ internal fun HuntGameScreen(
                     .testTag("hunt_playfield")
                     .pointerInput(round?.id, uiState.pending) {
                         detectTapGestures { position ->
+                            val tapX = (position.x / size.width).coerceIn(0f, 1f)
+                            val tapY = (position.y / size.height).coerceIn(0f, 1f)
+                            val visibleRound = latestRound
+                            val visibleTargetId = visibleRound?.visibleTargetAt(
+                                tapX,
+                                tapY,
+                                SystemClock.elapsedRealtime(),
+                                visibleRound.theurgyRemainingMilliseconds > 0L || visibleRound.effectType == "freeze",
+                            )
                             viewModel.tap(
-                                (position.x / size.width).coerceIn(0f, 1f),
-                                (position.y / size.height).coerceIn(0f, 1f),
+                                tapX,
+                                tapY,
+                                visibleTargetId,
                             )
                         }
                     },
@@ -366,6 +377,33 @@ private fun reflectedTargetPosition(value: Float, radius: Float): Float {
     val cycle = 2f * span
     val phase = ((value - radius) % cycle + cycle) % cycle
     return radius + if (phase <= span) phase else cycle - phase
+}
+
+private fun HuntRound.visibleTargetAt(
+    tapX: Float,
+    tapY: Float,
+    now: Long,
+    motionPaused: Boolean,
+): String? {
+    val elapsed = if (motionPaused) 0f else ((now - sampledAtElapsedMs).coerceIn(0L, 900L) / 1000f)
+    return targets
+        .asSequence()
+        .map { target ->
+            val x = if (tiltActive) {
+                (target.x + target.vx * elapsed).coerceIn(target.radius, 1f - target.radius)
+            } else {
+                reflectedTargetPosition(target.x + target.vx * elapsed, target.radius)
+            }
+            val y = if (tiltActive) {
+                (target.y + target.vy * elapsed).coerceIn(target.radius, 1f - target.radius)
+            } else {
+                reflectedTargetPosition(target.y + target.vy * elapsed, target.radius)
+            }
+            Triple(target.id, kotlin.math.hypot(tapX - x, tapY - y), target.radius)
+        }
+        .filter { (_, distance, radius) -> distance <= radius }
+        .minByOrNull { (_, distance) -> distance }
+        ?.first
 }
 
 @Composable

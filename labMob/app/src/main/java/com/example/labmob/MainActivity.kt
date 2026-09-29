@@ -1,5 +1,6 @@
 package com.example.labmob
 
+import android.content.Intent
 import android.graphics.Paint
 import android.os.Bundle
 import android.widget.CalendarView
@@ -132,6 +133,10 @@ class MainActivity : ComponentActivity() {
                 LabMobApp()
             }
         }
+        sendBroadcast(
+            Intent(this, GoldRateWidgetProvider::class.java)
+                .setAction(GoldRateWidgetProvider.ACTION_REFRESH),
+        )
     }
 }
 

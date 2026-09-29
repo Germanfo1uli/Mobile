@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -32,16 +33,16 @@ class GoldRateWidgetProvider : AppWidgetProvider() {
     }
 
     private fun refresh(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        if (ids.isEmpty()) return
         val cache = context.getSharedPreferences(CACHE_NAME, Context.MODE_PRIVATE)
         val cachedValue = cache.getString(KEY_VALUE, null)
         val currentCaption = "ЗОЛОТО • ${phoneDate()}"
-        ids.forEach {
-            manager.updateAppWidget(
-                it,
-                views(context, cachedValue ?: "ОБНОВЛЯЕМ…", if (cachedValue == null) "ЗОЛОТО • ЦБ РФ" else currentCaption),
-            )
-        }
+        render(
+            context,
+            manager,
+            ids,
+            cachedValue ?: "ОБНОВЛЯЕМ…",
+            if (cachedValue == null) "ЗОЛОТО • ЦБ РФ" else currentCaption,
+        )
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
@@ -63,18 +64,39 @@ class GoldRateWidgetProvider : AppWidgetProvider() {
                 } else {
                     Log.w(TAG, "Unable to refresh gold widget", result.exceptionOrNull())
                 }
-                ids.forEach { manager.updateAppWidget(it, views(context, value, caption)) }
+                withContext(Dispatchers.Main) {
+                    render(context, manager, ids, value, caption)
+                }
             } finally {
                 pending.finish()
             }
         }
     }
 
+    private fun render(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray,
+        value: String,
+        caption: String,
+    ) {
+        val component = ComponentName(context, GoldRateWidgetProvider::class.java)
+        val widgetViews = views(context, value, caption)
+        // Some Honor launchers lose the widget id after an in-place APK update.
+        // Updating by provider keeps the existing widget alive; the id update
+        // additionally covers launchers that only accept targeted RemoteViews.
+        manager.updateAppWidget(component, widgetViews)
+        ids.forEach { manager.updateAppWidget(it, widgetViews) }
+        Log.d(TAG, "Rendered ${ids.size} widget(s): $value, $caption")
+    }
+
     private fun views(context: Context, value: String, caption: String): RemoteViews =
         RemoteViews(context.packageName, R.layout.gold_rate_widget).apply {
             setTextViewText(R.id.gold_rate_value, value)
             setTextViewText(R.id.gold_rate_date, caption)
-            val intent = Intent(context, GoldRateWidgetProvider::class.java).setAction(ACTION_REFRESH)
+            val intent = Intent(context, GoldRateWidgetProvider::class.java)
+                .setAction(ACTION_REFRESH)
+                .setPackage(context.packageName)
             val pendingIntent = PendingIntent.getBroadcast(
                 context, 71, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
