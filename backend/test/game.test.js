@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TARGET_TYPES, GAME_RULES, DIFFICULTY_PRESETS, applyEvent, createRoundState, roundSnapshot, advanceRound, GameError } from "../src/game.js";
+import { TARGET_TYPES, GAME_RULES, DIFFICULTY_PRESETS, applyEvent, createRoundState, roundSnapshot, advanceRound, GameError, validateEvent } from "../src/game.js";
 import { parseGoldXml } from "../src/gold.js";
 
 const player = { difficulty: 2 };
@@ -38,6 +38,24 @@ test("server calculates hits, misses and a nonnegative score", () => {
   const snapshot = roundSnapshot(round, now);
   assert.equal(snapshot.targets.length, settings.maxInsects);
   assert.equal(snapshot.score, state.score);
+});
+
+test("target id preserves a visible hit across cloud latency", () => {
+  const now = Date.now();
+  const state = createRoundState(player, settings, now);
+  const target = state.targets[0];
+  const event = validateEvent({
+    eventId: "3f010a84-c46d-4d2a-bec7-ab068cf35b3c",
+    type: "tap",
+    targetId: target.id,
+    x: target.x,
+    y: target.y,
+  });
+  assert.equal(event.targetId, target.id);
+  const hit = applyEvent(state, event, now + 4_000);
+  assert.equal(hit.type, "hit");
+  assert.equal(hit.targetId, target.id);
+  assert.equal(state.hits, 1);
 });
 
 test("theurgy cutscene pauses timer and target motion before freeze begins", () => {

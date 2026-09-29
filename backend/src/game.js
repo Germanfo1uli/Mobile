@@ -201,16 +201,25 @@ export function validateEvent(body) {
       throw new ValidationError({ [key]: `Must be a number from ${min} to 1` });
     }
   }
-  return { eventId: body.eventId, type: body.type, x: body.x, y: body.y };
+  const event = { eventId: body.eventId, type: body.type, x: body.x, y: body.y };
+  if (body.type === "tap" && body.targetId !== undefined && body.targetId !== null) {
+    event.targetId = requireUuid(body.targetId, "targetId");
+  }
+  return event;
 }
 
 export function applyEvent(state, event, now) {
   if (now < (state.theurgyUntil ?? 0)) throw new GameError(409, "Theurgy cutscene is playing");
   if (event.type === "tap") {
-    const index = state.targets.findIndex((target) => {
-      const position = positionAt(target, now, state);
-      return Math.hypot(event.x - position.x, event.y - position.y) <= effectiveRadius(state, target, now);
-    });
+    // A target id is supplied only after the Android client has hit-tested the
+    // sprite that is actually visible on screen. This keeps cloud latency from
+    // turning a valid tap into a miss while the target continues to move.
+    const index = event.targetId
+      ? state.targets.findIndex((target) => target.id === event.targetId)
+      : state.targets.findIndex((target) => {
+        const position = positionAt(target, now, state);
+        return Math.hypot(event.x - position.x, event.y - position.y) <= effectiveRadius(state, target, now);
+      });
     if (index < 0) {
       const basePenalty = GAME_RULES.missPenaltyByDifficulty[state.difficulty - 1];
       const penalty = (state.shieldUntil ?? 0) > now ? 0 : basePenalty * activePenaltyMultiplier(state, now);

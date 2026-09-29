@@ -59,7 +59,7 @@ class HuntGameViewModel(
         begin(playerId, level)
     }
 
-    fun tap(x: Float, y: Float) {
+    fun tap(x: Float, y: Float, targetId: String? = null) {
         val active = _uiState.value.round ?: return
         if (_uiState.value.pending || active.finished || active.theurgyRemainingMilliseconds > 0L) return
         _uiState.value = _uiState.value.copy(pending = true)
@@ -68,7 +68,7 @@ class HuntGameViewModel(
             val operation = if (bonus != null && hypot(x - bonus.x, y - bonus.y) < .11f) {
                 runCatching { api.collectBonus(active.id, bonus.id, UUID.randomUUID().toString()) }
             } else {
-                runCatching { api.tap(active.id, x, y, UUID.randomUUID().toString()) }
+                runCatching { api.tap(active.id, x, y, UUID.randomUUID().toString(), targetId) }
             }
             operation.onSuccess { _uiState.value = HuntGameUiState(round = it) }
                 .onFailure { _uiState.value = _uiState.value.copy(pending = false, error = it.message ?: "Не удалось передать касание") }
