@@ -64,6 +64,27 @@ data class VelvetRoomState(
     val theurgies: List<TheurgyItem>,
 )
 
+data class MatchResult(
+    val playerId: String,
+    val playerName: String,
+    val score: Int?,
+    val hits: Int?,
+    val misses: Int?,
+    val submitted: Boolean,
+    val place: Int?,
+)
+
+data class MultiplayerMatch(
+    val code: String,
+    val status: String,
+    val hostPlayerId: String,
+    val hostName: String,
+    val maxPlayers: Int,
+    val players: List<MatchResult>,
+    val results: List<MatchResult>,
+    val winner: MatchResult?,
+)
+
 private fun JSONObject.toHuntRound(): HuntRound {
     val targetsJson = getJSONArray("targets")
     return HuntRound(
@@ -93,6 +114,46 @@ private fun JSONObject.toHuntRound(): HuntRound {
 }
 
 class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
+    private fun JSONObject.toMatch(): MultiplayerMatch {
+        fun parseRows(key: String): List<MatchResult> {
+            val rows = optJSONArray(key) ?: JSONArray()
+            return (0 until rows.length()).map { index -> rows.getJSONObject(index).let { item ->
+                MatchResult(item.getString("playerId"), item.getString("playerName"),
+                    if (item.isNull("score")) null else item.getInt("score"),
+                    if (item.isNull("hits")) null else item.getInt("hits"),
+                    if (item.isNull("misses")) null else item.getInt("misses"),
+                    item.optBoolean("submitted"), if (item.isNull("place")) null else item.getInt("place"))
+            } }
+        }
+        return MultiplayerMatch(getString("code"), getString("status"), getString("hostPlayerId"),
+            getString("hostName"), getInt("maxPlayers"), parseRows("players"), parseRows("results"),
+            optJSONObject("winner")?.let { winner ->
+                MatchResult(winner.getString("playerId"), winner.getString("playerName"), winner.getInt("score"),
+                    winner.optInt("hits"), winner.optInt("misses"), true, winner.optInt("place", 1))
+            })
+    }
+
+    suspend fun createMatch(playerId: String, maxPlayers: Int = 8): MultiplayerMatch = withContext(Dispatchers.IO) {
+        request("matches", "POST", JSONObject().put("playerId", playerId).put("maxPlayers", maxPlayers)).getJSONObject("match").toMatch()
+    }
+
+    suspend fun getMatch(code: String): MultiplayerMatch = withContext(Dispatchers.IO) {
+        request("matches/${code.trim().uppercase(Locale.US)}").getJSONObject("match").toMatch()
+    }
+
+    suspend fun joinMatch(code: String, playerId: String): MultiplayerMatch = withContext(Dispatchers.IO) {
+        request("matches/${code.trim().uppercase(Locale.US)}/players", "POST", JSONObject().put("playerId", playerId)).getJSONObject("match").toMatch()
+    }
+
+    suspend fun startMatch(code: String, playerId: String): MultiplayerMatch = withContext(Dispatchers.IO) {
+        request("matches/${code.trim().uppercase(Locale.US)}/start", "POST", JSONObject().put("playerId", playerId)).getJSONObject("match").toMatch()
+    }
+
+    suspend fun submitMatchResult(code: String, playerId: String, score: Int, hits: Int, misses: Int): MultiplayerMatch = withContext(Dispatchers.IO) {
+        request("matches/${code.trim().uppercase(Locale.US)}/results", "POST", JSONObject()
+            .put("playerId", playerId).put("score", score).put("hits", hits).put("misses", misses)).getJSONObject("match").toMatch()
+    }
+
     suspend fun listPlayers(): List<SavedPlayerProfile> = withContext(Dispatchers.IO) {
         val players = request("players").getJSONArray("players")
         (0 until players.length()).map { index ->
