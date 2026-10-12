@@ -1,5 +1,7 @@
 import { randomInt } from "node:crypto";
 import { GameError, createRoundState, roundSnapshot } from "./game.js";
+import { loadGoldRate } from "./gold.js";
+import { applyMatchRating, ensurePvpRating, pvpRules, pvpTier } from "./pvp.js";
 import { requireUuid, ValidationError } from "./validation.js";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -30,10 +32,11 @@ async function expireQuickSearch(client, match) {
 async function snapshot(client, match) {
   const players = await client.query(
     `SELECT p.id, p.full_name, mp.joined_at,
-            r.score, r.hits, r.misses, r.submitted_at
+            r.score, r.hits, r.misses, r.submitted_at, e.delta AS rating_delta
      FROM multiplayer_match_players mp
      JOIN players p ON p.id = mp.player_id
      LEFT JOIN multiplayer_match_results r ON r.match_id = mp.match_id AND r.player_id = mp.player_id
+     LEFT JOIN pvp_rating_events e ON e.match_id = mp.match_id AND e.player_id = mp.player_id
      WHERE mp.match_id = $1 ORDER BY mp.joined_at, p.full_name`, [match.id],
   );
   const rows = players.rows.map((row, index) => ({
@@ -46,6 +49,7 @@ async function snapshot(client, match) {
     hits: row.hits === null ? null : Number(row.hits),
     misses: row.misses === null ? null : Number(row.misses),
     submittedAt: row.submitted_at,
+    ratingDelta: row.rating_delta,
   }));
   const ranked = [...rows].filter((row) => row.submitted).sort((a, b) => b.score - a.score || a.playerName.localeCompare(b.playerName));
   ranked.forEach((row, index) => { row.place = index > 0 && row.score === ranked[index - 1].score ? ranked[index - 1].place : index + 1; });
@@ -59,6 +63,8 @@ async function snapshot(client, match) {
     hostPlayerId: match.host_player_id,
     hostName: match.host_name,
     maxPlayers: match.max_players,
+    rankTier: match.rank_tier,
+    rules: match.mode === "quick" ? pvpRules(match.rank_tier) : null,
     createdAt: match.created_at,
     startedAt: match.started_at,
     finishedAt: match.finished_at,
@@ -92,7 +98,17 @@ export async function recordMatchRoundResult(client, round) {
      WHERE p.match_id = $1`, [matchId],
   );
   if (count.rows[0].total === 2 && count.rows[0].submitted === 2) {
-    await client.query("UPDATE multiplayer_matches SET status = 'finished', finished_at = now() WHERE id = $1", [matchId]);
+    const completed = await client.query(
+      "UPDATE multiplayer_matches SET status = 'finished', finished_at = now() WHERE id = $1 AND status = 'running' RETURNING mode",
+      [matchId],
+    );
+    if (completed.rowCount && completed.rows[0].mode === "quick") {
+      const scores = await client.query(
+        "SELECT player_id, score FROM multiplayer_match_results WHERE match_id = $1 ORDER BY player_id",
+        [matchId],
+      );
+      await applyMatchRating(client, matchId, scores.rows);
+    }
   }
 }
 
@@ -104,6 +120,7 @@ export function registerMultiplayerRoutes(app, { inTransaction }) {
       await client.query("SELECT pg_advisory_xact_lock(473, 5)");
       const player = await client.query("SELECT id, full_name FROM players WHERE id = $1", [playerId]);
       if (!player.rowCount) throw new GameError(404, "Player not found");
+      await ensurePvpRating(client, playerId);
       await client.query(
         `UPDATE multiplayer_matches SET status = 'expired'
          WHERE mode = 'quick' AND status = 'waiting' AND created_at <= now() - interval '20 seconds'`,
@@ -122,9 +139,18 @@ export function registerMultiplayerRoutes(app, { inTransaction }) {
       );
       if (waiting.rowCount) {
         const found = await getMatch(client, waiting.rows[0].code, true);
-        await client.query("INSERT INTO multiplayer_match_players(match_id, player_id) VALUES ($1, $2)", [found.id, playerId]);
+        await client.query(
+          `INSERT INTO multiplayer_match_players(match_id, player_id, selected_theurgy)
+           SELECT $1, id, selected_theurgy FROM players WHERE id = $2`, [found.id, playerId],
+        );
+        const ratings = await client.query(
+          `SELECT MAX(r.points)::int AS points FROM multiplayer_match_players mp
+           JOIN player_pvp_rating r ON r.player_id = mp.player_id WHERE mp.match_id = $1`, [found.id],
+        );
+        const rankTier = pvpTier(ratings.rows[0].points ?? 0);
         const started = await client.query(
-          "UPDATE multiplayer_matches SET status = 'running', started_at = now() WHERE id = $1 RETURNING *", [found.id],
+          "UPDATE multiplayer_matches SET status = 'running', rank_tier = $2, started_at = now() WHERE id = $1 RETURNING *",
+          [found.id, rankTier],
         );
         return snapshot(client, { ...started.rows[0], host_name: found.host_name });
       }
@@ -135,7 +161,10 @@ export function registerMultiplayerRoutes(app, { inTransaction }) {
           [matchCode(), playerId],
         );
         if (created.rowCount) {
-          await client.query("INSERT INTO multiplayer_match_players(match_id, player_id) VALUES ($1, $2)", [created.rows[0].id, playerId]);
+          await client.query(
+            `INSERT INTO multiplayer_match_players(match_id, player_id, selected_theurgy)
+             SELECT $1, id, selected_theurgy FROM players WHERE id = $2`, [created.rows[0].id, playerId],
+          );
           return snapshot(client, { ...created.rows[0], host_name: player.rows[0].full_name });
         }
       }
@@ -161,7 +190,7 @@ export function registerMultiplayerRoutes(app, { inTransaction }) {
     const payload = await inTransaction(async (client) => {
       const match = await getMatch(client, request.params.code, true);
       const member = await client.query(
-        "SELECT round_id FROM multiplayer_match_players WHERE match_id = $1 AND player_id = $2 FOR UPDATE",
+        "SELECT round_id, selected_theurgy FROM multiplayer_match_players WHERE match_id = $1 AND player_id = $2 FOR UPDATE",
         [match.id, playerId],
       );
       if (!member.rowCount) throw new GameError(403, "Player is not in this match");
@@ -174,14 +203,19 @@ export function registerMultiplayerRoutes(app, { inTransaction }) {
       if (active.rowCount) throw new GameError(409, "Finish your current hunt before entering a match");
       const player = await client.query("SELECT * FROM players WHERE id = $1", [playerId]);
       if (!player.rowCount) throw new GameError(404, "Player not found");
-      const settings = await client.query("SELECT * FROM player_settings WHERE player_id = $1", [playerId]);
-      if (!settings.rowCount) throw new GameError(409, "Player settings are missing");
-      const config = settings.rows[0];
-      const state = createRoundState(player.rows[0], {
-        gameSpeed: Number(config.game_speed), maxInsects: config.max_insects,
-        bonusIntervalSeconds: config.bonus_interval_seconds,
-        roundDurationSeconds: config.round_duration_seconds,
-      }, Date.now(), { level: 1, selectedTheurgy: player.rows[0].selected_theurgy });
+      const rules = pvpRules(match.rank_tier);
+      let goldRate = match.gold_rate;
+      if (goldRate === null) {
+        // A stable per-match fallback keeps both players on identical rules if CBR is unavailable.
+        const rate = await loadGoldRate().catch(() => ({ rublesPerGram: 10_000 }));
+        goldRate = rate.rublesPerGram;
+        await client.query("UPDATE multiplayer_matches SET gold_rate = $2 WHERE id = $1", [match.id, goldRate]);
+      }
+      const state = createRoundState(
+        { ...player.rows[0], difficulty: rules.difficulty }, rules, Date.now(),
+        { level: 1, goldEnabled: true, goldRate: { rublesPerGram: Number(goldRate) },
+          selectedTheurgy: member.rows[0].selected_theurgy ?? player.rows[0].selected_theurgy },
+      );
       const created = await client.query("INSERT INTO game_rounds(player_id, state) VALUES ($1, $2) RETURNING *", [playerId, state]);
       await client.query("UPDATE multiplayer_match_players SET round_id = $3 WHERE match_id = $1 AND player_id = $2", [match.id, playerId, created.rows[0].id]);
       return { round: roundSnapshot(created.rows[0], Date.now()), resumed: false };
@@ -288,6 +322,13 @@ export function registerMultiplayerRoutes(app, { inTransaction }) {
       const updated = final
         ? await client.query("UPDATE multiplayer_matches SET status = 'finished', finished_at = now() WHERE id = $1 RETURNING *", [current.id])
         : { rows: [current] };
+      if (final && current.mode === "quick") {
+        const scores = await client.query(
+          "SELECT player_id, score FROM multiplayer_match_results WHERE match_id = $1 ORDER BY player_id",
+          [current.id],
+        );
+        await applyMatchRating(client, current.id, scores.rows);
+      }
       return snapshot(client, updated.rows[0]);
     });
     response.json({ match });

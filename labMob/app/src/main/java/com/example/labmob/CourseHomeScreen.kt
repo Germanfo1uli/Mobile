@@ -109,7 +109,7 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
     }
 
     val musicTrack = when (destination) {
-        MenuDestination.GAME -> R.raw.game_theme
+        MenuDestination.GAME -> if (networkMatchCode != null) R.raw.pvp_theme else R.raw.game_theme
         MenuDestination.VELVET -> R.raw.velvet_theme
         else -> R.raw.menu_theme
     }
@@ -316,7 +316,7 @@ private fun MenuDashboard(
         item { SlashMenuItem("02", "КОМАНДА", "ЛЮДИ ИЗ ТЕНИ", true, false, "authors_menu_item") { onAuthors() } }
         item { SlashMenuItem("03", "ПОДГОТОВКА", "ПАРАМЕТРЫ ОПЕРАЦИИ", true, true, "settings_menu_item") { onSettings() } }
         item { SlashMenuItem("04", "РЕКОРДЫ", "ЛУЧШИЕ ДЕЛА ОПЕРАЦИИ", true, false, "records_menu_item") { onRecords() } }
-        item { SlashMenuItem("05", "СЕТЕВАЯ ОХОТА", "КОМНАТА ДЛЯ СОРЕВНОВАНИЯ", true, true, "multiplayer_menu_item") { onMultiplayer() } }
+        item { SlashMenuItem("05", "СЕТЕВАЯ ОХОТА", "РЕЙТИНГ • ДОРОГА СЛАВЫ • ДУЭЛЬ", true, true, "multiplayer_menu_item") { onMultiplayer() } }
         item { SlashMenuItem("06", "СМЕНИТЬ ИГРОКА", "НОВОЕ ИЛИ СОХРАНЁННОЕ ДОСЬЕ", true, false, "switch_player_menu_item") { onChangePlayer() } }
         item {
             SlashMenuItem(

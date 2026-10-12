@@ -39,6 +39,8 @@ try {
   assert.equal(paired.status, "running");
   assert.equal(paired.players.length, 2);
   assert.equal(paired.winner, null);
+  assert.equal(paired.rules.roundDurationSeconds, 60);
+  assert.equal(paired.rules.difficulty, 3);
 
   const repeated = (await call("/matchmaking/search", "POST", { playerId: first })).match;
   assert.equal(repeated.code, code);
@@ -48,6 +50,9 @@ try {
     call(`/matches/${code}/round`, "POST", { playerId: second }),
   ]);
   assert.notEqual(firstRound.round.id, secondRound.round.id);
+  assert.deepEqual(firstRound.round.settings, secondRound.round.settings);
+  assert.equal(firstRound.round.difficulty, 3);
+  assert.equal(firstRound.round.settings.roundDurationSeconds, 60);
   const target = firstRound.round.targets[0];
   await call(`/rounds/${firstRound.round.id}/events`, "POST", {
     eventId: randomUUID(), type: "tap", targetId: target.id, x: target.x, y: target.y,
@@ -64,11 +69,18 @@ try {
   assert.equal(final.results.length, 2);
   assert.equal(final.winner.playerId, first);
   assert.ok(final.winner.score > final.results[1].score);
+  assert.equal(final.players.find((item) => item.playerId === first).ratingDelta, 10);
   const resumedAfterFinish = await call(`/matches/${code}/round`, "POST", { playerId: second });
   assert.equal(resumedAfterFinish.round.id, secondRound.round.id);
   assert.equal(resumedAfterFinish.round.status, "finished");
   const repeatedResult = await call(`/matches/${code}/results`, "POST", { playerId: second, roundId: secondRound.round.id });
   assert.equal(repeatedResult.match.status, "finished");
+  const firstRating = (await call(`/pvp/players/${first}`)).rating;
+  const secondRating = (await call(`/pvp/players/${second}`)).rating;
+  assert.equal(firstRating.points, 10);
+  assert.equal(secondRating.points, 0);
+  assert.equal(firstRating.wins, 1);
+  assert.equal(secondRating.losses, 1);
   console.log(`Local match verified: ${code}, ${final.winner.score}:${final.results[1].score}`);
 
   const solo = await createPlayer("Одиночка");

@@ -72,7 +72,26 @@ data class MatchResult(
     val misses: Int?,
     val submitted: Boolean,
     val place: Int?,
+    val ratingDelta: Int? = null,
 )
+
+data class PvpRules(
+    val rankTier: Int, val rankName: String, val gameSpeed: Float,
+    val maxInsects: Int, val roundDurationSeconds: Int, val difficulty: Int,
+)
+
+data class PvpRating(
+    val playerId: String, val playerName: String, val points: Int,
+    val rankTier: Int, val rankName: String, val nextRankAt: Int?,
+    val highestRewardTier: Int, val wins: Int, val losses: Int, val draws: Int,
+    val place: Int? = null,
+)
+
+data class PvpRoadStep(
+    val tier: Int, val name: String, val at: Int, val rewardClues: Long, val claimed: Boolean,
+)
+
+data class PvpProfile(val rating: PvpRating, val rules: PvpRules, val road: List<PvpRoadStep>)
 
 data class MultiplayerMatch(
     val code: String,
@@ -85,6 +104,21 @@ data class MultiplayerMatch(
     val results: List<MatchResult>,
     val winner: MatchResult?,
     val draw: Boolean,
+    val rankTier: Int = 0,
+    val rules: PvpRules? = null,
+)
+
+private fun JSONObject.toPvpRules(): PvpRules = PvpRules(
+    getInt("rankTier"), getString("rankName"), getDouble("gameSpeed").toFloat(),
+    getInt("maxInsects"), getInt("roundDurationSeconds"), getInt("difficulty"),
+)
+
+private fun JSONObject.toPvpRating(): PvpRating = PvpRating(
+    getString("playerId"), getString("playerName"), getInt("points"),
+    getInt("rankTier"), getString("rankName"),
+    if (isNull("nextRankAt")) null else getInt("nextRankAt"),
+    getInt("highestRewardTier"), getInt("wins"), getInt("losses"), getInt("draws"),
+    if (has("place")) getInt("place") else null,
 )
 
 private fun JSONObject.toHuntRound(): HuntRound {
@@ -124,7 +158,8 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
                     if (item.isNull("score")) null else item.getInt("score"),
                     if (item.isNull("hits")) null else item.getInt("hits"),
                     if (item.isNull("misses")) null else item.getInt("misses"),
-                    item.optBoolean("submitted"), if (item.isNull("place")) null else item.getInt("place"))
+                    item.optBoolean("submitted"), if (item.isNull("place")) null else item.getInt("place"),
+                    if (item.isNull("ratingDelta")) null else item.getInt("ratingDelta"))
             } }
         }
         return MultiplayerMatch(getString("code"), getString("status"), optLong("searchRemainingMilliseconds"), getString("hostPlayerId"),
@@ -132,7 +167,24 @@ class BackendApi(private val baseUrl: String = BuildConfig.API_BASE_URL) {
             optJSONObject("winner")?.let { winner ->
                 MatchResult(winner.getString("playerId"), winner.getString("playerName"), winner.getInt("score"),
                     winner.optInt("hits"), winner.optInt("misses"), true, winner.optInt("place", 1))
-            }, optBoolean("draw"))
+            }, optBoolean("draw"), optInt("rankTier", 0), optJSONObject("rules")?.toPvpRules())
+    }
+
+    suspend fun pvpProfile(playerId: String): PvpProfile = withContext(Dispatchers.IO) {
+        request("pvp/players/$playerId").let { data ->
+            val road = data.getJSONArray("road")
+            PvpProfile(data.getJSONObject("rating").toPvpRating(), data.getJSONObject("rules").toPvpRules(),
+                (0 until road.length()).map { index -> road.getJSONObject(index).let {
+                    PvpRoadStep(it.getInt("tier"), it.getString("name"), it.getInt("at"),
+                        it.getLong("rewardClues"), it.getBoolean("claimed"))
+                } })
+        }
+    }
+
+    suspend fun pvpLeaderboard(): List<PvpRating> = withContext(Dispatchers.IO) {
+        request("pvp/leaderboard").getJSONArray("leaderboard").let { rows ->
+            (0 until rows.length()).map { rows.getJSONObject(it).toPvpRating() }
+        }
     }
 
     suspend fun searchMatch(playerId: String): MultiplayerMatch = withContext(Dispatchers.IO) {

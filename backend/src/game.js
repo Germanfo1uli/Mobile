@@ -104,6 +104,7 @@ function positionAt(target, now, state) {
 
 export function createRoundState(player, settings, now, options = {}) {
   const level = options.level ?? 1;
+  const goldEnabled = level === 2 || options.goldEnabled === true;
   const selectedTheurgy = findTheurgy(options.selectedTheurgy)?.id ?? "gravity";
   const state = {
     version: 2, level, difficulty: player.difficulty, settings,
@@ -116,8 +117,8 @@ export function createRoundState(player, settings, now, options = {}) {
     penaltyMultiplierUntil: 0, penaltyMultiplierValue: 1,
     radiusMultiplierUntil: 0, radiusMultiplierValue: 1,
     theurgyUntil: 0, tilt: { x: 0, y: 0 }, targets: [],
-    goldRate: level === 2 ? options.goldRate : null,
-    nextGoldenAt: level === 2 ? now + GAME_RULES.goldenIntervalSeconds * 1000 : null,
+    goldRate: goldEnabled ? options.goldRate : null,
+    nextGoldenAt: goldEnabled ? now + GAME_RULES.goldenIntervalSeconds * 1000 : null,
   };
   for (let i = 0; i < settings.maxInsects; i++) state.targets.push(spawnTarget(state, now));
   return state;
@@ -130,7 +131,7 @@ export function advanceRound(state, now) {
   while (state.targets.filter((target) => target.type !== "alt_gold").length < state.settings.maxInsects) {
     state.targets.push(spawnTarget(state, now));
   }
-  if (state.level === 2 && state.goldRate && now >= state.nextGoldenAt) {
+  if (state.goldRate && state.nextGoldenAt && now >= state.nextGoldenAt) {
     const interval = GAME_RULES.goldenIntervalSeconds * 1000;
     const lastScheduledAt = state.nextGoldenAt + Math.floor((now - state.nextGoldenAt) / interval) * interval;
     state.nextGoldenAt = lastScheduledAt + interval;
