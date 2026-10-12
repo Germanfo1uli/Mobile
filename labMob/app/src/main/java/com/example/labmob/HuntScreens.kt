@@ -158,6 +158,7 @@ internal fun LevelTwoBriefingScreen(onBack: () -> Unit, onFinished: () -> Unit) 
 internal fun HuntGameScreen(
     player: SavedPlayerProfile,
     level: Int,
+    matchCode: String? = null,
     onLeave: () -> Unit,
     onFinished: (HuntRound) -> Unit,
 ) {
@@ -173,7 +174,7 @@ internal fun HuntGameScreen(
     val multiplierActive = round?.effectType == "multiplier"
     val shieldActive = round?.effectType == "shield"
 
-    LaunchedEffect(player.id, level) { viewModel.begin(player.id, level) }
+    LaunchedEffect(player.id, level, matchCode) { viewModel.begin(player.id, level, matchCode) }
     LaunchedEffect(appContext) { spriteFrames = HuntSpriteCache.load(appContext) }
     LaunchedEffect(Unit) {
         var lastFrameNanos = 0L
@@ -312,8 +313,8 @@ internal fun HuntGameScreen(
                         Text(uiState.error ?: "ПОЛУЧАЕМ НАВОДКУ...", color = Ink, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
                         if (uiState.error != null) {
                             Spacer(Modifier.height(10.dp))
-                            Text("ПОВТОРИТЬ", color = Color.White, modifier = Modifier.background(Red).clickable { viewModel.retry(player.id, level) }.padding(10.dp))
-                            Text("НАЗАД К КАРТЕ", color = Ink, modifier = Modifier.clickable(onClick = onLeave).padding(10.dp))
+                            Text("ПОВТОРИТЬ", color = Color.White, modifier = Modifier.background(Red).clickable { viewModel.retry(player.id, level, matchCode) }.padding(10.dp))
+                            Text(if (matchCode == null) "НАЗАД К КАРТЕ" else "НАЗАД К ПОИСКУ", color = Ink, modifier = Modifier.clickable(onClick = onLeave).padding(10.dp))
                         }
                     }
                 }
@@ -476,7 +477,7 @@ internal fun RecordsScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun HuntBackButton(onClick: () -> Unit) {
+internal fun HuntBackButton(onClick: () -> Unit) {
     Text("← НАЗАД", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black,
         modifier = Modifier.padding(top = 14.dp, bottom = 12.dp).background(Red, SlashShape)
             .clickable(onClick = onClick).testTag("menu_back").padding(horizontal = 16.dp, vertical = 9.dp))

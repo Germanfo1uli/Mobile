@@ -29,8 +29,8 @@ class HuntGameViewModel(
     private var pollingJob: Job? = null
     private var tiltPending = false
 
-    fun begin(playerId: String, level: Int) {
-        val key = "$playerId:$level"
+    fun begin(playerId: String, level: Int, matchCode: String? = null) {
+        val key = "$playerId:$level:${matchCode.orEmpty()}"
         val current = _uiState.value.round
         val currentGame = savedStateHandle.get<String>(KEY_GAME)
         if (currentGame == key && current != null && !current.finished) return
@@ -43,7 +43,9 @@ class HuntGameViewModel(
         viewModelScope.launch {
             runCatching {
                 val savedRoundId = savedStateHandle.get<String>(KEY_ROUND_ID)
-                if (savedRoundId == null) api.startRound(playerId, level) else api.getRound(savedRoundId)
+                if (savedRoundId != null) api.getRound(savedRoundId)
+                else if (matchCode != null) api.startMatchRound(matchCode, playerId)
+                else api.startRound(playerId, level)
             }.onSuccess { round ->
                 savedStateHandle[KEY_ROUND_ID] = round.id
                 _uiState.value = HuntGameUiState(round = round)
@@ -54,9 +56,9 @@ class HuntGameViewModel(
         }
     }
 
-    fun retry(playerId: String, level: Int) {
+    fun retry(playerId: String, level: Int, matchCode: String? = null) {
         savedStateHandle[KEY_GAME] = null
-        begin(playerId, level)
+        begin(playerId, level, matchCode)
     }
 
     fun tap(x: Float, y: Float, targetId: String? = null) {

@@ -78,7 +78,7 @@ fun RegistrationFlowScreen(onRegistered: (String, PlayerProfile) -> Unit) {
     )
 }
 
-private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS, MAP, LEVEL2_BRIEFING, GAME, RESULT, RECORDS, VELVET }
+private enum class MenuDestination { HOME, PROFILE, RULES, AUTHORS, SETTINGS, MAP, LEVEL2_BRIEFING, GAME, RESULT, RECORDS, VELVET, MULTIPLAYER }
 
 @Composable
 fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, onChangePlayer: () -> Unit = {}, onPlayerUpdated: (SavedPlayerProfile) -> Unit = {}) {
@@ -89,6 +89,10 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
     var resultHits by rememberSaveable { mutableIntStateOf(0) }
     var resultMisses by rememberSaveable { mutableIntStateOf(0) }
     var selectedLevel by rememberSaveable { mutableIntStateOf(1) }
+    var networkMatch by remember { mutableStateOf<MultiplayerMatch?>(null) }
+    var networkMatchCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastMatchCode by rememberSaveable { mutableStateOf<String?>(null) }
+    var alreadyPlayedMatchCode by rememberSaveable { mutableStateOf<String?>(null) }
     var bestScore by remember { mutableStateOf<Int?>(null) }
     var progress by remember { mutableStateOf<PlayerProgress?>(null) }
     val api = remember { BackendApi() }
@@ -136,6 +140,7 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                     { destination = MenuDestination.AUTHORS },
                     { destination = MenuDestination.SETTINGS },
                     { destination = MenuDestination.RECORDS },
+                    { destination = MenuDestination.MULTIPLAYER },
                     onChangePlayer,
                     progress?.velvetRoomUnlocked == true,
                     { destination = MenuDestination.VELVET },
@@ -162,6 +167,7 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                     progress = progress,
                     onBack = { destination = MenuDestination.HOME },
                     onStart = { level ->
+                        networkMatchCode = null
                         selectedLevel = level
                         destination = if (level == 2) MenuDestination.LEVEL2_BRIEFING else MenuDestination.GAME
                     },
@@ -173,7 +179,8 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                 MenuDestination.GAME -> HuntGameScreen(
                     player = player,
                     level = selectedLevel,
-                    onLeave = { destination = MenuDestination.MAP },
+                    matchCode = networkMatchCode,
+                    onLeave = { destination = if (networkMatchCode == null) MenuDestination.MAP else MenuDestination.MULTIPLAYER },
                     onFinished = { round ->
                         resultScore = round.score
                         resultHits = round.hits
@@ -182,7 +189,13 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                             showVelvetUnlocked = true
                             progress = progress?.copy(velvetRoomUnlocked = true)
                         }
-                        destination = MenuDestination.RESULT
+                        val matchCode = networkMatchCode
+                        if (matchCode != null) {
+                            alreadyPlayedMatchCode = matchCode
+                            lastMatchCode = matchCode
+                            networkMatchCode = null
+                            destination = MenuDestination.MULTIPLAYER
+                        } else destination = MenuDestination.RESULT
                     },
                 )
                 MenuDestination.RESULT -> HuntResultScreen(
@@ -196,6 +209,23 @@ fun MainMenuScreen(player: SavedPlayerProfile, onDeleteSave: () -> Unit = {}, on
                     player = player,
                     onBack = { destination = MenuDestination.HOME },
                     onBalanceChanged = { balance -> progress = progress?.copy(totalClues = balance) },
+                )
+                MenuDestination.MULTIPLAYER -> MultiplayerScreen(
+                    player = player,
+                    initialMatch = networkMatch,
+                    initialCode = lastMatchCode,
+                    alreadyPlayedMatchCode = alreadyPlayedMatchCode,
+                    onBack = { destination = MenuDestination.HOME },
+                    onStartGame = { code ->
+                        selectedLevel = 1
+                        networkMatchCode = code
+                        lastMatchCode = code
+                        destination = MenuDestination.GAME
+                    },
+                    onMatchChanged = {
+                        networkMatch = it
+                        lastMatchCode = it?.code
+                    },
                 )
             }
         }
@@ -251,6 +281,7 @@ private fun MenuDashboard(
     onAuthors: () -> Unit,
     onSettings: () -> Unit,
     onRecords: () -> Unit,
+    onMultiplayer: () -> Unit,
     onChangePlayer: () -> Unit,
     velvetUnlocked: Boolean,
     onVelvetRoom: () -> Unit,
@@ -285,7 +316,8 @@ private fun MenuDashboard(
         item { SlashMenuItem("02", "КОМАНДА", "ЛЮДИ ИЗ ТЕНИ", true, false, "authors_menu_item") { onAuthors() } }
         item { SlashMenuItem("03", "ПОДГОТОВКА", "ПАРАМЕТРЫ ОПЕРАЦИИ", true, true, "settings_menu_item") { onSettings() } }
         item { SlashMenuItem("04", "РЕКОРДЫ", "ЛУЧШИЕ ДЕЛА ОПЕРАЦИИ", true, false, "records_menu_item") { onRecords() } }
-        item { SlashMenuItem("05", "СМЕНИТЬ ИГРОКА", "НОВОЕ ИЛИ СОХРАНЁННОЕ ДОСЬЕ", true, true, "switch_player_menu_item") { onChangePlayer() } }
+        item { SlashMenuItem("05", "СЕТЕВАЯ ОХОТА", "КОМНАТА ДЛЯ СОРЕВНОВАНИЯ", true, true, "multiplayer_menu_item") { onMultiplayer() } }
+        item { SlashMenuItem("06", "СМЕНИТЬ ИГРОКА", "НОВОЕ ИЛИ СОХРАНЁННОЕ ДОСЬЕ", true, false, "switch_player_menu_item") { onChangePlayer() } }
         item {
             SlashMenuItem(
                 "?", "БАРХАТНАЯ КОМНАТА",

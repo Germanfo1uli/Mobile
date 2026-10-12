@@ -6,6 +6,7 @@ import { DIFFICULTY_PRESETS, GameError } from "./game.js";
 import { registerRoundRoutes } from "./rounds.js";
 import { loadGoldRate } from "./gold.js";
 import { THEURGIES, findTheurgy } from "./theurgies.js";
+import { registerMultiplayerRoutes } from "./multiplayer.js";
 
 function playerRow(row) {
   const birthDate = row.birth_date instanceof Date
@@ -309,6 +310,7 @@ export function createApp({ pool, inTransaction, corsOrigin = "*" }) {
   });
 
   registerRoundRoutes(app, { inTransaction });
+  registerMultiplayerRoutes(app, { inTransaction });
 
   app.get("/api/records", async (request, response) => {
     const limit = pageInteger(request.query.limit, 20, 1, 100);

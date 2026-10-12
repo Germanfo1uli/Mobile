@@ -1,6 +1,7 @@
 import { GAME_RULES, TARGET_TYPES, GameError, advanceRound, applyEvent, createRoundState, roundSnapshot, validateEvent } from "./game.js";
 import { loadGoldRate } from "./gold.js";
 import { requireUuid } from "./validation.js";
+import { recordMatchRoundResult } from "./multiplayer.js";
 
 async function finishRound(client, round, now) {
   if (round.status === "active") {
@@ -19,6 +20,7 @@ async function finishRound(client, round, now) {
       await client.query("UPDATE players SET clues = clues + $2, updated_at = now() WHERE id = $1", [round.player_id, round.state.score]);
     }
   }
+  await recordMatchRoundResult(client, round);
   const result = await client.query(
     `SELECT id, round_id AS "roundId", player_id AS "playerId", score, hits, misses,
             difficulty, level, played_at AS "playedAt", verified FROM game_results WHERE round_id = $1`,
